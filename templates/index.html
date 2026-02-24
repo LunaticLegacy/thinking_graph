@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Thinking Graph</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="backdrop" aria-hidden="true"></div>
+    <header class="topbar fade-in">
+        <div>
+            <p class="eyebrow">Thinking Graph</p>
+            <h1>观点节点关系图</h1>
+        </div>
+        <button id="refresh-all" class="btn btn-secondary">刷新</button>
+    </header>
+
+    <main class="layout">
+        <section class="panel fade-in delay-1">
+            <h2>新增观点节点</h2>
+            <form id="node-form" class="stacked-form">
+                <label>
+                    观点内容
+                    <textarea id="node-content" required placeholder="例如：远程办公可以提升深度工作效率"></textarea>
+                </label>
+                <label>
+                    简短摘要
+                    <input id="node-summary" type="text" placeholder="例如：远程办公提升效率">
+                </label>
+                <label>
+                    置信度 (0~1)
+                    <input id="node-confidence" type="number" min="0" max="1" step="0.1" value="1">
+                </label>
+                <button type="submit" class="btn">创建节点</button>
+            </form>
+
+            <h2>创建连接</h2>
+            <form id="connection-form" class="stacked-form">
+                <label>
+                    起点观点
+                    <select id="source-node" required></select>
+                </label>
+                <label>
+                    终点观点
+                    <select id="target-node" required></select>
+                </label>
+                <label>
+                    关系类型
+                    <select id="conn-type">
+                        <option value="supports">supports</option>
+                        <option value="opposes">opposes</option>
+                        <option value="relates">relates</option>
+                        <option value="leads_to">leads_to</option>
+                        <option value="derives_from">derives_from</option>
+                    </select>
+                </label>
+                <label>
+                    关系描述
+                    <input id="conn-description" type="text" placeholder="例如：A 作为 B 的前提条件">
+                </label>
+                <button type="submit" class="btn">创建连接</button>
+            </form>
+
+            <div class="stack-inline">
+                <button id="delete-node" class="btn btn-danger">删除选中节点</button>
+                <button id="delete-connection" class="btn btn-danger">删除选中连接</button>
+            </div>
+
+            <h2>保存/加载思考图</h2>
+            <form id="graph-save-form" class="stacked-form">
+                <label>
+                    快照名称
+                    <input id="save-graph-name" type="text" placeholder="例如：讨论版本-v1" required>
+                </label>
+                <button type="submit" class="btn btn-secondary">保存当前图</button>
+            </form>
+            <div class="stack-inline">
+                <select id="saved-graphs"></select>
+                <button id="load-graph" type="button" class="btn btn-secondary">加载选中图</button>
+                <button id="refresh-saved" type="button" class="btn btn-secondary">刷新列表</button>
+                <button id="clear-graph" type="button" class="btn btn-danger">清空当前图</button>
+            </div>
+        </section>
+
+        <section class="panel canvas-panel fade-in delay-2">
+            <div class="canvas-head">
+                <h2>关系图</h2>
+                <p id="selection-tip">点击节点或连接查看并操作</p>
+            </div>
+            <div id="network"></div>
+        </section>
+
+        <section class="panel fade-in delay-3">
+            <h2>审计状态</h2>
+            <div class="stack-inline">
+                <button id="verify-audit" class="btn btn-secondary">审计完整性检查</button>
+                <span id="audit-status" class="badge">未检查</span>
+            </div>
+            <ul id="audit-issues" class="issues"></ul>
+
+            <h2>最近审计记录</h2>
+            <ul id="audit-list" class="audit-list"></ul>
+
+            <h2>LLM 入口</h2>
+            <div class="stack-inline">
+                <button id="llm-review-graph" type="button" class="btn btn-secondary">一键审核思考图有效性</button>
+            </div>
+            <pre id="llm-review-response" class="llm-output">等待审核...</pre>
+
+            <form id="llm-form" class="stacked-form">
+                <label>
+                    Prompt
+                    <textarea id="llm-prompt" required placeholder="让 LLM 帮我拆分该主题的关键观点与冲突关系"></textarea>
+                </label>
+                <button type="submit" class="btn">调用 LLM</button>
+            </form>
+            <pre id="llm-response" class="llm-output">等待调用...</pre>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

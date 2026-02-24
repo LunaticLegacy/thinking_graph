@@ -1,0 +1,432 @@
+"""LLM integration entry for backend APIs."""
+
+from __future__ import annotations
+
+import json
+import re
+from typing import Any
+
+from config import LLMConfig
+from datamodels.ai_llm_models import (
+    LLMChatRequest,
+    LLMChatResponse,
+    LLMGraphConflict,
+    LLMGraphReviewResponse,
+)
+from datamodels.graph_models import ConnectionType, GraphSnapshot
+
+
+class LLMService:
+    THINKING_GRAPH_PARADIGM: tuple[str, ...] = (
+        "节点(node)必须是明确观点，node.content 不能为空。",
+        "连接(connection)必须连接两个不同节点，禁止自环(source_id == target_id)。",
+        "连接类型必须属于: supports / opposes / relates / leads_to / derives_from。",
+        "连接语义: supports=支持，opposes=反驳，relates=相关，leads_to=导向，derives_from=推导来源。",
+        "连接的 source_id 与 target_id 必须都存在于节点集合中。",
+        "同一方向的两个节点不应同时被 supports 与 opposes 关系并存。",
+    )
+
+    REVIEW_SYSTEM_PROMPT = (
+        "你是思考图审计器。"
+        "你只能输出 JSON，禁止输出 markdown、解释文字或多余字段。"
+        "当思考图满足范式时输出 {\"result\":\"OK\"}。"
+        "否则输出 {\"result\":\"CONFLICT\",\"conflicts\":["
+        "{\"entity_type\":\"node|connection|global\","
+        "\"entity_id\":\"id-or-global\",\"reason\":\"...\"}]}。"
+        "冲突项必须引用输入中的节点或连接 id。"
+    )
+
+    def __init__(
+        self,
+        llm_config: LLMConfig | None = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
+        backend: str | None = None,
+    ) -> None:
+        config = llm_config or LLMConfig.from_env()
+
+        self.api_key = api_key if api_key is not None else config.api_key
+        self.base_url = base_url or config.base_url
+        self.model = model or config.model
+        self.backend = (backend or config.backend or "openai").strip().lower()
+        self.model_dir = config.model_dir
+        self.npu_device = config.npu_device
+        self.require_npu = config.require_npu
+        self.onnx_provider = config.onnx_provider
+
+        self._client: Any | None = None
+        self._local_backend: Any | None = None
+        self._disabled_reason: str | None = None
+
+        if self.backend == "openai":
+            self._init_openai_backend()
+        elif self.backend in {"onnxruntime", "openvino"}:
+            self._init_local_backend()
+        else:
+            self._disabled_reason = (
+                "Unsupported backend. Use one of: openai, onnxruntime, openvino. "
+                f"Current: {self.backend}"
+            )
+
+    @property
+    def enabled(self) -> bool:
+        if self.backend == "openai":
+            return self._client is not None
+        return self._local_backend is not None
+
+    def _init_openai_backend(self) -> None:
+        if not self.api_key:
+            self._disabled_reason = "LLM is not configured. Set `LLM_API_KEY` to enable."
+            return
+
+        try:
+            from openai import OpenAI
+
+            self._client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+        except Exception as exc:
+            self._disabled_reason = f"Failed to initialize OpenAI client: {exc}"
+
+    def _init_local_backend(self) -> None:
+        try:
+            from utils.llm_npu_module import create_local_llm_backend
+
+            self._local_backend = create_local_llm_backend(
+                backend=self.backend,
+                model_root=self.model_dir,
+                model_name=self.model,
+                device=self.npu_device,
+                require_npu=self.require_npu,
+                onnx_provider=self.onnx_provider,
+            )
+        except Exception as exc:
+            self._disabled_reason = f"Failed to initialize {self.backend} backend: {exc}"
+
+    def ask(self, payload: LLMChatRequest) -> LLMChatResponse:
+        text = payload.prompt.strip()
+        if not text:
+            raise ValueError("`prompt` is required.")
+
+        if not self.enabled:
+            return LLMChatResponse(
+                enabled=False,
+                model=self.model,
+                response=self._disabled_reason
+                or "LLM backend is unavailable. Check backend/runtime configuration.",
+            )
+
+        try:
+            if self.backend == "openai":
+                answer = self._ask_openai(payload)
+            else:
+                answer = self._ask_local(payload)
+        except Exception as exc:
+            return LLMChatResponse(
+                enabled=False,
+                model=self.model,
+                response=f"{self.backend} request failed: {exc}",
+            )
+
+        return LLMChatResponse(enabled=True, model=self.model, response=answer)
+
+    def _ask_openai(self, payload: LLMChatRequest) -> str:
+        assert self._client is not None
+
+        messages: list[dict[str, str]] = []
+        if payload.system_prompt:
+            messages.append({"role": "system", "content": payload.system_prompt})
+        messages.append({"role": "user", "content": payload.prompt.strip()})
+
+        completion = self._client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=float(payload.temperature),
+            max_tokens=max(int(payload.max_tokens), 1),
+        )
+        return (completion.choices[0].message.content or "").strip()
+
+    def _ask_local(self, payload: LLMChatRequest) -> str:
+        assert self._local_backend is not None
+
+        return self._local_backend.generate(
+            payload.prompt,
+            system_prompt=payload.system_prompt,
+            temperature=float(payload.temperature),
+            max_new_tokens=max(int(payload.max_tokens), 1),
+        )
+
+    def review_graph(self, snapshot: GraphSnapshot) -> LLMGraphReviewResponse:
+        rule_conflicts = self._rule_based_conflicts(snapshot)
+        llm_conflicts: list[LLMGraphConflict] = []
+        raw_response = ""
+
+        if self.enabled:
+            prompt = self._build_review_prompt(snapshot)
+            chat_result = self.ask(
+                LLMChatRequest(
+                    prompt=prompt,
+                    system_prompt=self.REVIEW_SYSTEM_PROMPT,
+                    temperature=0.0,
+                    max_tokens=900,
+                )
+            )
+            raw_response = (chat_result.response or "").strip()
+            llm_conflicts = self._parse_review_response(raw_response)
+        else:
+            raw_response = self._disabled_reason or "LLM backend is unavailable."
+
+        conflicts = self._merge_conflicts(rule_conflicts + llm_conflicts)
+        verdict = "OK" if not conflicts else "CONFLICT"
+
+        response_text = "OK" if verdict == "OK" else (
+            raw_response or self._conflicts_to_text(conflicts)
+        )
+
+        return LLMGraphReviewResponse(
+            enabled=self.enabled,
+            model=self.model,
+            verdict=verdict,
+            conflicts=conflicts,
+            response=response_text,
+            paradigm=list(self.THINKING_GRAPH_PARADIGM),
+        )
+
+    def _build_review_prompt(self, snapshot: GraphSnapshot) -> str:
+        paradigm_text = "\n".join(
+            f"{index}. {item}" for index, item in enumerate(self.THINKING_GRAPH_PARADIGM, start=1)
+        )
+
+        graph_payload = {
+            "node_count": len(snapshot.nodes),
+            "connection_count": len(snapshot.connections),
+            "nodes": [
+                {
+                    "id": node.id,
+                    "summary": node.summary,
+                    "content": node.content,
+                    "confidence": node.confidence,
+                    "tags": node.tags,
+                    "evidence": node.evidence,
+                }
+                for node in snapshot.nodes
+            ],
+            "connections": [
+                {
+                    "id": conn.id,
+                    "source_id": conn.source_id,
+                    "target_id": conn.target_id,
+                    "conn_type": conn.conn_type,
+                    "description": conn.description,
+                    "strength": conn.strength,
+                }
+                for conn in snapshot.connections
+            ],
+        }
+
+        graph_json = json.dumps(graph_payload, ensure_ascii=False)
+        return (
+            "请按下列范式审核思考图。\n"
+            "若满足范式，返回 JSON: {\"result\":\"OK\"}\n"
+            "若不满足，返回 JSON: {\"result\":\"CONFLICT\",\"conflicts\":[...]}。\n"
+            "\n"
+            f"范式:\n{paradigm_text}\n\n"
+            f"思考图JSON:\n{graph_json}\n"
+        )
+
+    def _rule_based_conflicts(self, snapshot: GraphSnapshot) -> list[LLMGraphConflict]:
+        conflicts: list[LLMGraphConflict] = []
+        node_ids = {node.id for node in snapshot.nodes}
+        connection_types = ConnectionType.values()
+
+        for node in snapshot.nodes:
+            if not node.content.strip():
+                conflicts.append(
+                    LLMGraphConflict(
+                        entity_type="node",
+                        entity_id=node.id,
+                        reason="节点 content 为空。",
+                    )
+                )
+
+        pair_types: dict[tuple[str, str], set[str]] = {}
+        pair_connections: dict[tuple[str, str], list[str]] = {}
+
+        for conn in snapshot.connections:
+            if conn.source_id == conn.target_id:
+                conflicts.append(
+                    LLMGraphConflict(
+                        entity_type="connection",
+                        entity_id=conn.id,
+                        reason="连接存在自环(source_id == target_id)。",
+                    )
+                )
+
+            if conn.source_id not in node_ids or conn.target_id not in node_ids:
+                conflicts.append(
+                    LLMGraphConflict(
+                        entity_type="connection",
+                        entity_id=conn.id,
+                        reason="连接引用了不存在的节点。",
+                    )
+                )
+
+            if conn.conn_type not in connection_types:
+                conflicts.append(
+                    LLMGraphConflict(
+                        entity_type="connection",
+                        entity_id=conn.id,
+                        reason=f"连接类型无效: {conn.conn_type}",
+                    )
+                )
+
+            pair_key = (conn.source_id, conn.target_id)
+            pair_types.setdefault(pair_key, set()).add(conn.conn_type)
+            pair_connections.setdefault(pair_key, []).append(conn.id)
+
+        for pair_key, kinds in pair_types.items():
+            if (
+                ConnectionType.SUPPORTS.value in kinds
+                and ConnectionType.OPPOSES.value in kinds
+            ):
+                source_id, target_id = pair_key
+                for conn_id in pair_connections.get(pair_key, []):
+                    conflicts.append(
+                        LLMGraphConflict(
+                            entity_type="connection",
+                            entity_id=conn_id,
+                            reason=(
+                                "同一方向节点同时存在 supports 与 opposes 关系: "
+                                f"{source_id} -> {target_id}"
+                            ),
+                        )
+                    )
+
+        return self._merge_conflicts(conflicts)
+
+    def _parse_review_response(self, raw_response: str) -> list[LLMGraphConflict]:
+        payload = self._extract_json_payload(raw_response)
+        if payload is None:
+            return self._heuristic_conflicts(raw_response)
+
+        result = str(payload.get("result", "")).strip().upper()
+        if result == "OK":
+            return []
+
+        conflicts_raw = payload.get("conflicts")
+        conflicts: list[LLMGraphConflict] = []
+
+        if isinstance(conflicts_raw, list):
+            for item in conflicts_raw:
+                if isinstance(item, dict):
+                    entity_type = str(item.get("entity_type", "global")).strip() or "global"
+                    entity_id = str(item.get("entity_id", "global")).strip() or "global"
+                    reason = str(item.get("reason", "未提供原因")).strip() or "未提供原因"
+                    conflicts.append(
+                        LLMGraphConflict(
+                            entity_type=entity_type,
+                            entity_id=entity_id,
+                            reason=reason,
+                        )
+                    )
+                elif isinstance(item, str):
+                    text = item.strip()
+                    if text:
+                        conflicts.append(
+                            LLMGraphConflict(
+                                entity_type="global",
+                                entity_id="global",
+                                reason=text,
+                            )
+                        )
+
+        if not conflicts and result and result != "OK":
+            conflicts.append(
+                LLMGraphConflict(
+                    entity_type="global",
+                    entity_id="global",
+                    reason="LLM 标记了冲突，但未返回结构化 conflicts 列表。",
+                )
+            )
+        return self._merge_conflicts(conflicts)
+
+    @staticmethod
+    def _extract_json_payload(raw_response: str) -> dict[str, Any] | None:
+        text = (raw_response or "").strip()
+        if not text:
+            return None
+
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+            text = re.sub(r"\s*```$", "", text).strip()
+
+        candidates = [text]
+        start = text.find("{")
+        end = text.rfind("}")
+        if 0 <= start < end:
+            candidates.append(text[start : end + 1])
+
+        for candidate in candidates:
+            try:
+                payload = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                return payload
+
+        return None
+
+    @staticmethod
+    def _heuristic_conflicts(raw_response: str) -> list[LLMGraphConflict]:
+        text = (raw_response or "").strip()
+        if not text:
+            return []
+
+        lowered = text.lower()
+        if lowered == "ok":
+            return []
+
+        if "conflict" in lowered or "冲突" in text or "无效" in text:
+            return [
+                LLMGraphConflict(
+                    entity_type="global",
+                    entity_id="global",
+                    reason=text,
+                )
+            ]
+
+        return []
+
+    @staticmethod
+    def _merge_conflicts(conflicts: list[LLMGraphConflict]) -> list[LLMGraphConflict]:
+        merged: list[LLMGraphConflict] = []
+        seen: set[tuple[str, str, str]] = set()
+
+        for conflict in conflicts:
+            key = (
+                conflict.entity_type.strip() or "global",
+                conflict.entity_id.strip() or "global",
+                conflict.reason.strip(),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(
+                LLMGraphConflict(
+                    entity_type=key[0],
+                    entity_id=key[1],
+                    reason=key[2] or "未提供原因",
+                )
+            )
+
+        return merged
+
+    @staticmethod
+    def _conflicts_to_text(conflicts: list[LLMGraphConflict]) -> str:
+        if not conflicts:
+            return "OK"
+
+        rows = [
+            f"[{item.entity_type}] {item.entity_id}: {item.reason}"
+            for item in conflicts
+        ]
+        return "\n".join(rows)
