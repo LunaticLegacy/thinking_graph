@@ -203,6 +203,7 @@ textarea {
 
 #load-graph,
 #refresh-saved,
+#delete-saved-graph,
 #clear-graph {
     white-space: nowrap;
 }

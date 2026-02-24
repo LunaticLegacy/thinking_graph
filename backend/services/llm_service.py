@@ -1,4 +1,4 @@
-"""LLM integration entry for backend APIs."""
+﻿"""LLM integration entry for backend APIs."""
 
 from __future__ import annotations
 
@@ -16,6 +16,10 @@ from datamodels.ai_llm_models import (
 from datamodels.graph_models import ConnectionType, GraphSnapshot
 
 
+API_BACKENDS = {"remote_api", "local_api"}
+RUNTIME_BACKENDS = {"onnxruntime", "openvino"}
+
+
 class LLMService:
     THINKING_GRAPH_PARADIGM: tuple[str, ...] = (
         "节点(node)必须是明确观点，node.content 不能为空。",
@@ -27,13 +31,11 @@ class LLMService:
     )
 
     REVIEW_SYSTEM_PROMPT = (
-        "你是思考图审计器。"
-        "你只能输出 JSON，禁止输出 markdown、解释文字或多余字段。"
-        "当思考图满足范式时输出 {\"result\":\"OK\"}。"
-        "否则输出 {\"result\":\"CONFLICT\",\"conflicts\":["
-        "{\"entity_type\":\"node|connection|global\","
-        "\"entity_id\":\"id-or-global\",\"reason\":\"...\"}]}。"
-        "冲突项必须引用输入中的节点或连接 id。"
+        '你是思考图审计器。'
+        '你只能输出 JSON，禁止输出 markdown、解释文字或多余字段。'
+        '当思考图满足范式时输出 {"result":"OK"}。'
+        '否则输出 {"result":"CONFLICT","conflicts":[{"entity_type":"node|connection|global","entity_id":"id-or-global","reason":"..."}]}。'
+        '冲突项必须引用输入中的节点或连接 id。'
     )
 
     def __init__(
@@ -46,38 +48,64 @@ class LLMService:
     ) -> None:
         config = llm_config or LLMConfig.from_env()
 
-        self.api_key = api_key if api_key is not None else config.api_key
-        self.base_url = base_url or config.base_url
-        self.model = model or config.model
-        self.backend = (backend or config.backend or "openai").strip().lower()
-        self.model_dir = config.model_dir
-        self.npu_device = config.npu_device
-        self.require_npu = config.require_npu
-        self.onnx_provider = config.onnx_provider
+        self.config = config
+        self.backend = (backend or config.backend).strip().lower()
+
+        self.api_key: str | None = api_key
+        self.base_url: str = base_url or ""
+        self.model: str = model or ""
 
         self._client: Any | None = None
         self._local_backend: Any | None = None
         self._disabled_reason: str | None = None
 
-        if self.backend == "openai":
-            self._init_openai_backend()
-        elif self.backend in {"onnxruntime", "openvino"}:
-            self._init_local_backend()
+        if self.backend in API_BACKENDS:
+            self._init_api_backend(
+                mode=self.backend,
+                override_api_key=api_key,
+                override_base_url=base_url,
+                override_model=model,
+            )
+        elif self.backend in RUNTIME_BACKENDS:
+            self._init_local_runtime_backend(override_model=model)
         else:
             self._disabled_reason = (
-                "Unsupported backend. Use one of: openai, onnxruntime, openvino. "
+                "Unsupported backend. Use one of: "
+                "remote_api, local_api, onnxruntime, openvino. "
                 f"Current: {self.backend}"
             )
 
     @property
     def enabled(self) -> bool:
-        if self.backend == "openai":
+        if self.backend in API_BACKENDS:
             return self._client is not None
-        return self._local_backend is not None
+        if self.backend in RUNTIME_BACKENDS:
+            return self._local_backend is not None
+        return False
 
-    def _init_openai_backend(self) -> None:
-        if not self.api_key:
-            self._disabled_reason = "LLM is not configured. Set `LLM_API_KEY` to enable."
+    def _init_api_backend(
+        self,
+        *,
+        mode: str,
+        override_api_key: str | None,
+        override_base_url: str | None,
+        override_model: str | None,
+    ) -> None:
+        profile = self.config.local_api if mode == "local_api" else self.config.remote_api
+
+        self.base_url = (override_base_url or profile.base_url).strip()
+        self.model = (override_model or profile.model).strip() or profile.model
+        self.api_key = override_api_key if override_api_key is not None else profile.api_key
+
+        # Local API endpoints often do not require a real API key.
+        if mode == "local_api" and not self.api_key:
+            self.api_key = "LOCAL_API_KEY"
+
+        if mode == "remote_api" and not self.api_key:
+            self._disabled_reason = (
+                "Remote API backend is not configured. "
+                "Set `LLM_REMOTE_API_KEY` (or configure [llm.remote_api].api_key)."
+            )
             return
 
         try:
@@ -85,19 +113,25 @@ class LLMService:
 
             self._client = OpenAI(api_key=self.api_key, base_url=self.base_url)
         except Exception as exc:
-            self._disabled_reason = f"Failed to initialize OpenAI client: {exc}"
+            self._disabled_reason = f"Failed to initialize API client: {exc}"
 
-    def _init_local_backend(self) -> None:
+    def _init_local_runtime_backend(self, *, override_model: str | None) -> None:
+        runtime_profile = self.config.local_runtime
+
+        self.model = (override_model or runtime_profile.model).strip() or runtime_profile.model
+        self.base_url = ""
+        self.api_key = None
+
         try:
             from utils.llm_npu_module import create_local_llm_backend
 
             self._local_backend = create_local_llm_backend(
                 backend=self.backend,
-                model_root=self.model_dir,
+                model_root=runtime_profile.model_dir,
                 model_name=self.model,
-                device=self.npu_device,
-                require_npu=self.require_npu,
-                onnx_provider=self.onnx_provider,
+                device=runtime_profile.npu_device,
+                require_npu=runtime_profile.require_npu,
+                onnx_provider=runtime_profile.onnx_provider,
             )
         except Exception as exc:
             self._disabled_reason = f"Failed to initialize {self.backend} backend: {exc}"
@@ -110,26 +144,26 @@ class LLMService:
         if not self.enabled:
             return LLMChatResponse(
                 enabled=False,
-                model=self.model,
+                model=self.model or self.config.model,
                 response=self._disabled_reason
                 or "LLM backend is unavailable. Check backend/runtime configuration.",
             )
 
         try:
-            if self.backend == "openai":
-                answer = self._ask_openai(payload)
+            if self.backend in API_BACKENDS:
+                answer = self._ask_api(payload)
             else:
-                answer = self._ask_local(payload)
+                answer = self._ask_local_runtime(payload)
         except Exception as exc:
             return LLMChatResponse(
                 enabled=False,
-                model=self.model,
+                model=self.model or self.config.model,
                 response=f"{self.backend} request failed: {exc}",
             )
 
         return LLMChatResponse(enabled=True, model=self.model, response=answer)
 
-    def _ask_openai(self, payload: LLMChatRequest) -> str:
+    def _ask_api(self, payload: LLMChatRequest) -> str:
         assert self._client is not None
 
         messages: list[dict[str, str]] = []
@@ -145,7 +179,7 @@ class LLMService:
         )
         return (completion.choices[0].message.content or "").strip()
 
-    def _ask_local(self, payload: LLMChatRequest) -> str:
+    def _ask_local_runtime(self, payload: LLMChatRequest) -> str:
         assert self._local_backend is not None
 
         return self._local_backend.generate(
@@ -184,7 +218,7 @@ class LLMService:
 
         return LLMGraphReviewResponse(
             enabled=self.enabled,
-            model=self.model,
+            model=self.model or self.config.model,
             verdict=verdict,
             conflicts=conflicts,
             response=response_text,
@@ -225,12 +259,12 @@ class LLMService:
 
         graph_json = json.dumps(graph_payload, ensure_ascii=False)
         return (
-            "请按下列范式审核思考图。\n"
-            "若满足范式，返回 JSON: {\"result\":\"OK\"}\n"
-            "若不满足，返回 JSON: {\"result\":\"CONFLICT\",\"conflicts\":[...]}。\n"
-            "\n"
-            f"范式:\n{paradigm_text}\n\n"
-            f"思考图JSON:\n{graph_json}\n"
+            '请按下列范式审核思考图。\n'
+            '若满足范式，返回 JSON: {"result":"OK"}\n'
+            '若不满足，返回 JSON: {"result":"CONFLICT","conflicts":[...]}。\n'
+            '\n'
+            f'范式:\n{paradigm_text}\n\n'
+            f'思考图JSON:\n{graph_json}\n'
         )
 
     def _rule_based_conflicts(self, snapshot: GraphSnapshot) -> list[LLMGraphConflict]:

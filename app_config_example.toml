@@ -1,0 +1,48 @@
+﻿# 配置文件模板
+# 应用程序的各个配置项
+
+[server]
+host = "0.0.0.0"
+port = 5000
+debug = true
+enable_cors = true
+
+[paths]
+template_dir = "templates"
+static_dir = "static"
+data_dir = "data"
+project_db_path = "data/thinking_graph.db"
+# 默认数据库路径，如果为空则使用项目数据库
+default_db_path = ""
+
+[database]
+# 数据库连接配置，如果为空则使用默认数据库
+db_path = ""
+
+[llm]
+# 后端类型
+# - remote_api  : 远程 API 调用
+# - local_api   : 本地 API 服务（Ollama / LM Studio / vLLM 的 OpenAI 接口）
+# - onnxruntime : 使用 NPU 加速的 ONNXRuntime
+# - openvino    : 使用 NPU 加速的 OpenVINO
+backend = "remote_api"
+
+# 远程 API 设置
+[llm.remote_api]
+api_key = ""
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o-mini"
+
+# 本地 API（OpenAI 格式接口）
+[llm.local_api]
+api_key = ""
+base_url = "http://127.0.0.1:11434/v1"
+model = "qwen2.5:7b"
+
+# 本地运行时（仅 onnxruntime/openvino 使用）
+[llm.local_runtime]
+model = "qwen2.5-7b-instruct"
+model_dir = "models"
+npu_device = "NPU"
+require_npu = true
+onnx_provider = ""

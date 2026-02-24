@@ -17,6 +17,7 @@ from datamodels.graph_models import (
     DeletePayload,
     ErrorResponse,
     GraphClearPayload,
+    GraphDeletePayload,
     GraphLoadPayload,
     GraphSavePayload,
     HealthResponse,
@@ -209,6 +210,18 @@ def load_graph():
         result = graph_service().load_graph(payload, actor=actor_name(), reason=payload.reason)
     except ValueError as exc:
         return jsonify(to_json_ready(ErrorResponse(error=str(exc)))), 400
+    return jsonify(to_json_ready(result))
+
+
+@web_bp.post("/api/graphs/delete")
+def delete_saved_graph():
+    payload = GraphDeletePayload.from_mapping(payload_mapping())
+    try:
+        result = graph_service().delete_saved_graph(payload, actor=actor_name(), reason=payload.reason)
+    except ValueError as exc:
+        error_text = str(exc)
+        status = 404 if error_text == "saved graph not found" else 400
+        return jsonify(to_json_ready(ErrorResponse(error=error_text))), status
     return jsonify(to_json_ready(result))
 
 

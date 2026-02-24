@@ -1,5 +1,8 @@
 # virtual environment
 .venv
 
+# config file
+app_config.toml
+
 # python cache
 __pycache__

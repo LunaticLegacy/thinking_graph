@@ -300,6 +300,26 @@ class GraphLoadPayload:
 
 
 @dataclass(slots=True)
+class GraphDeletePayload:
+    name: str
+    reason: str | None = None
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, object]) -> "GraphDeletePayload":
+        return cls(
+            name=_to_str(data.get("name"), "").strip(),
+            reason=_to_optional_str(data.get("reason")),
+        )
+
+
+@dataclass(slots=True)
+class GraphDeleteResult:
+    name: str
+    deleted_at: str
+    message: str
+
+
+@dataclass(slots=True)
 class NodeCreatePayload:
     content: str
     summary: str = ""

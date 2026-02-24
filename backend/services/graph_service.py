@@ -23,6 +23,8 @@ from datamodels.graph_models import (
     EntityType,
     GraphClearPayload,
     GraphClearResult,
+    GraphDeletePayload,
+    GraphDeleteResult,
     GraphLoadPayload,
     GraphLoadResult,
     GraphSavePayload,
@@ -809,6 +811,29 @@ class GraphService:
             loaded_at=utc_now(),
             message="graph snapshot loaded",
             snapshot=loaded_snapshot,
+        )
+
+    def delete_saved_graph(
+        self,
+        payload: GraphDeletePayload,
+        actor: str,
+        reason: str | None = None,
+    ) -> GraphDeleteResult:
+        name = self._normalize_snapshot_name(payload.name)
+        deleted_at = utc_now()
+
+        with self.repository.transaction() as conn:
+            cursor = conn.execute(
+                "DELETE FROM graph_snapshots WHERE name = ?",
+                (name,),
+            )
+            if int(cursor.rowcount) <= 0:
+                raise ValueError("saved graph not found")
+
+        return GraphDeleteResult(
+            name=name,
+            deleted_at=deleted_at,
+            message="saved graph deleted",
         )
 
     def clear_graph(

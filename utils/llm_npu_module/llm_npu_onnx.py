@@ -12,7 +12,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 try:
     import onnxruntime_genai as og
-except Exception:  # pragma: no cover - optional dependency
+except ImportError:  # pragma: no cover - optional dependency
     og = None  # type: ignore[assignment]
 
 

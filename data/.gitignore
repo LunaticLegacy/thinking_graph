@@ -1,0 +1,2 @@
+# ignore all the .db file, which stores the graph itself.
+*.db*

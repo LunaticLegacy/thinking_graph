@@ -385,6 +385,35 @@ document.getElementById("load-graph").addEventListener("click", async () => {
     }
 });
 
+document.getElementById("delete-saved-graph").addEventListener("click", async () => {
+    const select = document.getElementById("saved-graphs");
+    const name = (select.value || "").trim();
+
+    if (!name) {
+        showMessage("请先选择一个已保存思考图", true);
+        return;
+    }
+
+    const confirmed = window.confirm(`确认删除已保存思考图“${name}”？`);
+    if (!confirmed) {
+        return;
+    }
+
+    try {
+        const result = await api("/api/graphs/delete", {
+            method: "POST",
+            body: JSON.stringify({
+                name,
+                reason: "manual delete saved graph in web ui",
+            }),
+        });
+        await loadSavedGraphs();
+        showMessage(`已删除思考图: ${result.name}`);
+    } catch (error) {
+        showMessage(error.message, true);
+    }
+});
+
 document.getElementById("clear-graph").addEventListener("click", async () => {
     const confirmed = window.confirm("确认清空当前思考图？该操作会记录审计日志。");
     if (!confirmed) {
