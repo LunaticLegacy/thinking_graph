@@ -2,7 +2,7 @@
 
 <br />
 
-<img src="https://raw.githubusercontent.com/LunaticLegacy/thinking_graph/assets/logo.png" width="120" alt="Thinking Graph Logo" />
+<img src="https://raw.githubusercontent.com/LunaticLegacy/thinking_graph/main/assets/logo.png" width="120" alt="Thinking Graph Logo" />
 
 # Thinking Graph
 
