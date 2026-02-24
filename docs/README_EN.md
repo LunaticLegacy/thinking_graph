@@ -1,102 +1,264 @@
+<div align="center">
+
+<br />
+
+<img src="https://raw.githubusercontent.com/LunaticLegacy/thinking_graph/assets/logo.png" width="120" alt="Thinking Graph Logo" />
+
 # Thinking Graph
 
-Thinking Graph is a visualization tool for cognitive processes based on Large Language Models (LLM), displaying complex thinking processes and logical relationships in a graphical manner. The project supports multiple LLM backends, including remote APIs, local APIs, and NPU-accelerated inference.
+### Make Thinking Visible · Make Logic Tangible
 
-## Features
+**An open-source tool for visualizing thoughts and argumentation**
 
-- **Visual Thinking Maps**: Display complex thought processes and logical relationships in a graphical format
-- **Multiple Backend Support**: Supports remote APIs (e.g., OpenAI), local APIs (Ollama, LM Studio), and NPU-accelerated inference
-- **Flexible Configuration**: Easily switch backends and parameters via TOML configuration files
-- **Web Interface**: Provides intuitive user interface for interaction
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
+[![Flask](https://img.shields.io/badge/Flask-3.1+-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/LunaticLegacy/thinking_graph?style=social)](https://github.com/LunaticLegacy/thinking_graph)
 
-## Technical Architecture
+[📖 Docs](https://github.com/LunaticLegacy/thinking_graph/wiki) · [🚀 Live Demo](https://demo.thinking-graph.dev) · [💬 Discussions](https://github.com/LunaticLegacy/thinking_graph/discussions) · [🇨🇳 中文](../README.md)
 
-- **Frontend**: HTML, CSS, JavaScript
-- **Backend**: Python Flask Framework
-- **Database**: SQLite (or other compatible databases)
-- **LLM Integration**: OpenAI API, Ollama, and other local inference engines
-- **NPU Support**: ONNXRuntime and OpenVINO NPU-accelerated inference
+<br />
 
-## Installation
+<img src="https://raw.githubusercontent.com/LunaticLegacy/thinking_graph/main/assets/screenshot.png" width="90%" alt="Thinking Graph Screenshot" />
 
-1. Clone the project:
-   ```bash
-   git clone https://github.com/LunaticLegacy/thinking_graph.git
-   cd thinking_graph
-   ```
+</div>
 
-2. Create virtual environment and install dependencies:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # Linux/Mac
-   # or
-   .venv\Scripts\activate     # Windows
-   
-   pip install -r requirements.txt
-   ```
+---
 
-3. Configure application parameters:
-   ```bash
-   cp app_config_example.toml app_config.toml
-   # Edit app_config.toml to adapt to your environment
-   ```
+## ✨ Why Thinking Graph?
 
-## Configuration
+> *"Complex thoughts deserve to be seen, not forgotten in the margins of a notebook."*
 
-The project uses `app_config.toml` for configuration, mainly including the following sections:
+In an age of information overload, we're constantly absorbing viewpoints, forming judgments, and engaging in discussions. But thinking is linear, while **true understanding is often a network**.
 
-- **[server]**: Server host address, port, debug mode, etc.
-- **[paths]**: Template directory, static files directory, data directory, etc.
-- **[database]**: Database connection configuration
-- **[llm]**: Large language model backend configuration, supporting multiple backend types
+Thinking Graph helps you:
 
-LLM backend supports the following options:
-- `remote_api`: Remote API calls (e.g., OpenAI)
-- `local_api`: Local API service (e.g., Ollama, LM Studio)
-- `onnxruntime`: Using NPU-accelerated ONNXRuntime
-- `openvino`: Using NPU-accelerated OpenVINO
+- 🧩 **Visualize thought processes** — Organize scattered ideas into clear argumentation networks
+- ⚡ **Multi-backend LLM support** — Local NPU inference or cloud APIs, your choice
+- 🔍 **Intelligent auditing** — AI automatically checks for logical conflicts and argument completeness
+- 📜 **Full traceability** — Every change is recorded, thought evolution leaves a trail
 
-## Usage
+---
 
-1. Start the application:
-   ```bash
-   python main.py
-   ```
+## 🚀 Get Started in 5 Minutes
 
-2. Open `http://localhost:5000` in your browser to access the application
+### Installation
 
-## Directory Structure
+```bash
+# Clone the repository
+git clone https://github.com/LunaticLegacy/thinking_graph.git
+cd thinking_graph
+
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # Linux/Mac
+# or .venv\Scripts\activate  # Windows
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Configuration
+
+```bash
+# Copy the config file
+cp app_config_example.toml app_config.toml
+
+# Edit to choose your LLM backend:
+# - remote_api: DeepSeek / OpenAI / Claude
+# - local_api: Ollama / LM Studio / vLLM
+# - onnxruntime / openvino: Local NPU acceleration
+```
+
+### Launch
+
+```bash
+python main.py
+```
+
+Open your browser at `http://localhost:5000` and start building your first thinking graph!
+
+---
+
+## 🎯 Core Features
+
+### 📊 Visual Argumentation Networks
+
+```python
+from thinking_graph import GraphBuilder
+
+builder = GraphBuilder()
+builder.add_node("Remote work boosts productivity", confidence=0.85)
+builder.add_node("Reduced commute time", confidence=0.95)
+builder.connect("Reduced commute time", "Remote work boosts productivity", type="supports")
+
+graph = builder.build()
+graph.visualize()  # Generate interactive network graph
+```
+
+- **Nodes**: Represent viewpoints with confidence scores, tags, and evidence
+- **Connections**: Five relationship types: supports / opposes / relates / leads_to / derives_from
+- **Interactive UI**: Drag-to-layout, zoom navigation, click-to-edit
+
+### 🤖 Multi-Backend LLM Integration
+
+| Backend | Latency | Privacy | Best For |
+|---------|---------|---------|----------|
+| Remote API | ⚡⚡⚡ | 🔒 | Rapid prototyping, high-accuracy needs |
+| Local API | ⚡⚡ | 🔒🔒 | Balancing performance & privacy |
+| ONNXRuntime | ⚡ | 🔒🔒🔒 | Fully local, NPU accelerated |
+| OpenVINO | ⚡ | 🔒🔒🔒 | Intel NPU optimized |
+
+### 🔎 Intelligent Logic Auditing
+
+```python
+# AI automatically checks argument consistency
+review_result = graph.ai_review()
+# {
+#   "verdict": "CONFLICT",
+#   "conflicts": [
+#     {
+#       "entity_type": "connection",
+#       "entity_id": "conn_001",
+#       "reason": "Same node pair has both supports and opposes relationships"
+#     }
+#   ]
+# }
+```
+
+Built-in audit rules:
+- ✅ No empty content nodes
+- ✅ No self-loop connections
+- ✅ Detect contradictory support/oppose relationships
+- ✅ Validate node reference integrity
+
+### 📜 Complete Audit Trail
+
+Every create, update, and delete operation is logged:
+
+```json
+{
+  "entity_type": "node",
+  "entity_id": "node_abc123",
+  "action": "update",
+  "actor": "luna",
+  "reason": "Correcting confidence score",
+  "before_state": { "confidence": 0.7, ... },
+  "after_state": { "confidence": 0.85, ... },
+  "created_at": "2026-02-24T14:32:00Z"
+}
+```
+
+Supports exporting audit reports, verifying data integrity, and rolling back to any historical version.
+
+---
+
+## 🏗️ Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Frontend                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │  React UI   │  │ Vis.js Graph │  │  Interactive Canvas │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     Flask Backend                            │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │   Routes    │  │   Services  │  │    Repository       │  │
+│  │   (API)     │──│  (Business) │──│   (Data Access)     │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+│         │                                                    │
+│         ▼                                                    │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │              LLM Integration Layer                   │    │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────┐  │    │
+│  │  │ DeepSeek │ │  Ollama  │ │ONNX NPU  │ │OpenVINO│  │    │
+│  │  └──────────┘ └──────────┘ └──────────┘ └────────┘  │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     Data Layer                               │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │   SQLite    │  │  Snapshots  │  │     Audit Log       │  │
+│  │  (Nodes &   │  │  (Versioned │  │  (Immutable History)│  │
+│  │ Connections)│  │   Graphs)   │  │                     │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 📦 Project Structure
 
 ```
 thinking_graph/
-├── backend/          # Backend service code
-│   ├── services/     # Various service modules
-│   └── repository.py # Data access layer
-├── config/           # Configuration files
-├── core/             # Core functionality modules
-│   ├── graph.py      # Graph processing logic
-│   └── visualization.py # Visualization module
-├── datamodels/       # Data model definitions
-├── models/           # Model-related documentation
-├── static/           # Static resources
-├── templates/        # Frontend templates
-├── utils/            # Utility classes and helper functions
-│   ├── databaseman/  # Database management
-│   ├── llm_fetcher/  # LLM fetcher
-│   └── llm_npu_module/ # NPU module
-├── web/              # Web routing and controllers
-├── app_config.toml   # Application configuration file
-└── main.py           # Main entry point
+├── backend/              # Business logic layer
+│   ├── services/         # Core services
+│   │   ├── graph_service.py    # Graph CRUD operations
+│   │   └── llm_service.py      # LLM integration
+│   └── repository.py     # Data access layer
+├── core/                 # Domain core
+│   ├── graph.py          # Graph models & algorithms
+│   └── visualization.py  # Visualization rendering
+├── datamodels/           # Data model definitions
+├── web/                  # Web routes & controllers
+├── static/               # Frontend assets
+├── templates/            # HTML templates
+├── utils/                # Utility modules
+│   ├── databaseman/      # Database management
+│   ├── llm_fetcher/      # LLM clients
+│   └── llm_npu_module/   # NPU inference acceleration
+├── config/               # Configuration modules
+├── tests/                # Test suite 🚧
+├── app_config.toml       # Application config
+└── main.py               # Entry point
 ```
 
-## NPU Backend Configuration
+---
 
-To use NPU-accelerated inference, please refer to the instructions in the [models](../models) directory to configure model resources.
+## 🛣️ Roadmap
 
-## Contributing
+- [x] Core graph operations (CRUD)
+- [x] Multi-backend LLM support
+- [x] Audit logging system
+- [x] Graph snapshot save/load
+- [ ] Collaborative editing (WebSocket)
+- [ ] Import/Export (Markdown, JSON, GraphML)
+- [ ] Template library (argumentation framework presets)
+- [ ] Mobile responsiveness
+- [ ] Plugin system
 
-Feel free to submit Issues and Pull Requests to improve this project!
+---
 
-## License
+## 🤝 Contributing
 
-See the LICENSE file for more information (if not provided, it defaults to MIT License).
+We welcome contributions of all kinds!
+
+1. **Fork** this repository
+2. Create your feature branch: `git checkout -b feature/amazing-feature`
+3. Commit your changes: `git commit -m 'Add amazing feature'`
+4. Push to the branch: `git push origin feature/amazing-feature`
+5. Open a **Pull Request**
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+
+---
+
+## 📄 License
+
+[MIT](LICENSE) © 2026 LunaNeko
+
+---
+
+<div align="center">
+
+**[⬆ Back to Top](#thinking-graph)**
+
+Made with ❤️ and ☕ by [LunaNeko](https://github.com/LunaticLegacy)
+
+</div>
