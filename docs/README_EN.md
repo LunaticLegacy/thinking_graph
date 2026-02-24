@@ -21,7 +21,7 @@ Thinking Graph is a visualization tool for cognitive processes based on Large La
 
 1. Clone the project:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/LunaticLegacy/thinking_graph.git
    cd thinking_graph
    ```
 
@@ -37,7 +37,7 @@ Thinking Graph is a visualization tool for cognitive processes based on Large La
 
 3. Configure application parameters:
    ```bash
-   cp app_config.toml app_config_example.toml
+   cp app_config_example.toml app_config.toml
    # Edit app_config.toml to adapt to your environment
    ```
 

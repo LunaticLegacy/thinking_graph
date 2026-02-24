@@ -21,7 +21,7 @@ Thinking Graph 是一个基于大语言模型（LLM）的思维可视化工具�
 
 1. 克隆项目到本地：
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/LunaticLegacy/thinking_graph.git
    cd thinking_graph
    ```
 
@@ -37,7 +37,7 @@ Thinking Graph 是一个基于大语言模型（LLM）的思维可视化工具�
 
 3. 配置应用参数：
    ```bash
-   cp app_config.toml app_config.toml
+   cp app_config_example.toml app_config.toml
    # 编辑 app_config.toml 以适应你的环境
    ```
 
