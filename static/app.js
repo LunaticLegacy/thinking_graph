@@ -4,10 +4,47 @@ const state = {
     nodes: [],
     connections: [],
     savedGraphs: [],
+    appSettings: null,
 };
 
 const nodesDataset = new vis.DataSet([]);
 const edgesDataset = new vis.DataSet([]);
+
+function resolveApiBase() {
+    const configuredBase = typeof window !== "undefined"
+        ? window.__THINKING_GRAPH_API_BASE__
+        : "";
+    if (typeof configuredBase === "string" && configuredBase.trim()) {
+        return configuredBase.trim().replace(/\/+$/, "");
+    }
+
+    if (typeof location !== "undefined") {
+        const protocol = (location.protocol || "").toLowerCase();
+        if (protocol === "http:" || protocol === "https:") {
+            return "";
+        }
+    }
+
+    return "http://127.0.0.1:5000";
+}
+
+const API_BASE = resolveApiBase();
+
+function buildApiUrl(path) {
+    if (typeof path !== "string" || !path.trim()) {
+        return API_BASE || "/";
+    }
+
+    if (/^https?:\/\//i.test(path)) {
+        return path;
+    }
+
+    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+    if (!API_BASE) {
+        return normalizedPath;
+    }
+    return `${API_BASE}${normalizedPath}`;
+}
 
 const networkContainer = document.getElementById("network");
 const network = new vis.Network(
@@ -78,8 +115,33 @@ function currentLanguage() {
     return "zh";
 }
 
+function uiText(zhText, enText) {
+    return currentLanguage() === "en" ? enText : zhText;
+}
+
+function canvasIdleMessage() {
+    return uiText(
+        "点击节点可编辑；创建节点请使用左侧表单。",
+        "Click a node to edit it; use the left form to create nodes."
+    );
+}
+
+function blankCanvasNoCreateMessage() {
+    return uiText(
+        "空白区域左键点击不会创建节点。",
+        "Left-clicking blank canvas does not create a node."
+    );
+}
+
+function createModeHintMessage() {
+    return uiText(
+        "创建节点请使用此表单；选中节点后，提交表单会更新该节点属性。",
+        "Use this form to create nodes; after selecting a node, submit to update it."
+    );
+}
+
 async function api(url, options = {}) {
-    const response = await fetch(url, {
+    const response = await fetch(buildApiUrl(url), {
         headers: {
             "Content-Type": "application/json",
             "X-Actor": "web-ui",
@@ -278,10 +340,134 @@ async function loadSavedGraphs(preferredName = null) {
     renderSavedGraphs(state.savedGraphs, preferredName);
 }
 
-const DEFAULT_NODE_COLOR = "#157f83";
-function getDefaultNodeContent() {
-    return i18n ? i18n.t("nodePanel.defaultContent") : "New node";
+function setSettingsStatus(message, isError = false) {
+    const status = document.getElementById("settings-status");
+    if (!status) {
+        return;
+    }
+    status.textContent = message || "";
+    status.style.color = isError ? "#ca553d" : "#5f6f7c";
 }
+
+function fillSettingsForm(llmSettings = null) {
+    const settings = llmSettings || {};
+    const backend = String(settings.backend || "remote_api").trim();
+    const remoteApi = settings.remote_api && typeof settings.remote_api === "object"
+        ? settings.remote_api
+        : {};
+    const localApi = settings.local_api && typeof settings.local_api === "object"
+        ? settings.local_api
+        : {};
+    const localRuntime = settings.local_runtime && typeof settings.local_runtime === "object"
+        ? settings.local_runtime
+        : {};
+
+    const backendSelect = document.getElementById("settings-llm-backend");
+    if (backendSelect) {
+        backendSelect.value = backend || "remote_api";
+    }
+
+    const remoteApiKey = document.getElementById("settings-remote-api-key");
+    if (remoteApiKey) {
+        remoteApiKey.value = String(remoteApi.api_key || "");
+    }
+
+    const remoteBaseUrl = document.getElementById("settings-remote-base-url");
+    if (remoteBaseUrl) {
+        remoteBaseUrl.value = String(remoteApi.base_url || "");
+    }
+
+    const remoteModel = document.getElementById("settings-remote-model");
+    if (remoteModel) {
+        remoteModel.value = String(remoteApi.model || "");
+    }
+
+    const localApiKey = document.getElementById("settings-local-api-key");
+    if (localApiKey) {
+        localApiKey.value = String(localApi.api_key || "");
+    }
+
+    const localBaseUrl = document.getElementById("settings-local-base-url");
+    if (localBaseUrl) {
+        localBaseUrl.value = String(localApi.base_url || "");
+    }
+
+    const localModel = document.getElementById("settings-local-model");
+    if (localModel) {
+        localModel.value = String(localApi.model || "");
+    }
+
+    const runtimeModel = document.getElementById("settings-runtime-model");
+    if (runtimeModel) {
+        runtimeModel.value = String(localRuntime.model || "");
+    }
+
+    const runtimeModelDir = document.getElementById("settings-runtime-model-dir");
+    if (runtimeModelDir) {
+        runtimeModelDir.value = String(localRuntime.model_dir || "");
+    }
+
+    const runtimeNpuDevice = document.getElementById("settings-runtime-npu-device");
+    if (runtimeNpuDevice) {
+        runtimeNpuDevice.value = String(localRuntime.npu_device || "");
+    }
+
+    const runtimeOnnxProvider = document.getElementById("settings-runtime-onnx-provider");
+    if (runtimeOnnxProvider) {
+        runtimeOnnxProvider.value = String(localRuntime.onnx_provider || "");
+    }
+
+    const runtimeRequireNpu = document.getElementById("settings-runtime-require-npu");
+    if (runtimeRequireNpu) {
+        runtimeRequireNpu.checked = Boolean(localRuntime.require_npu);
+    }
+}
+
+function collectSettingsPayload() {
+    const backend = (document.getElementById("settings-llm-backend")?.value || "remote_api").trim();
+
+    return {
+        llm: {
+            backend,
+            remote_api: {
+                api_key: (document.getElementById("settings-remote-api-key")?.value || "").trim(),
+                base_url: (document.getElementById("settings-remote-base-url")?.value || "").trim(),
+                model: (document.getElementById("settings-remote-model")?.value || "").trim(),
+            },
+            local_api: {
+                api_key: (document.getElementById("settings-local-api-key")?.value || "").trim(),
+                base_url: (document.getElementById("settings-local-base-url")?.value || "").trim(),
+                model: (document.getElementById("settings-local-model")?.value || "").trim(),
+            },
+            local_runtime: {
+                model: (document.getElementById("settings-runtime-model")?.value || "").trim(),
+                model_dir: (document.getElementById("settings-runtime-model-dir")?.value || "").trim(),
+                npu_device: (document.getElementById("settings-runtime-npu-device")?.value || "").trim(),
+                require_npu: Boolean(document.getElementById("settings-runtime-require-npu")?.checked),
+                onnx_provider: (document.getElementById("settings-runtime-onnx-provider")?.value || "").trim(),
+            },
+        },
+    };
+}
+
+async function loadAppSettings() {
+    setSettingsStatus(uiText("正在读取 app_config...", "Loading app_config..."));
+
+    const data = await api("/api/settings");
+    const llmSettings = data.llm || {};
+    state.appSettings = llmSettings;
+    fillSettingsForm(llmSettings);
+
+    const backendText = String(llmSettings.backend || "-");
+    setSettingsStatus(
+        uiText(
+            `已读取 app_config（LLM 后端：${backendText}）`,
+            `Loaded app_config (LLM backend: ${backendText}).`
+        )
+    );
+}
+
+const DEFAULT_NODE_COLOR = "#157f83";
 
 function renderAuditBadge(status) {
     const badge = document.getElementById("audit-status");
@@ -337,7 +523,7 @@ function refreshRuntimeI18nText() {
             : `Selected connection: ${state.selectedConnectionId.slice(0, 8)}`;
         showMessage(msg);
     } else {
-        showMessage(i18n ? i18n.t("canvasPanel.selectionTip") : "Click blank space to create a node. Click a node to edit its attributes.");
+        showMessage(canvasIdleMessage());
     }
 }
 
@@ -385,7 +571,7 @@ function updateNodeFormModeHint(selectedNode = null) {
         submitButton.textContent = i18n ? i18n.t('nodePanel.createNode') : "Create node";
     }
     if (modeHint) {
-        modeHint.textContent = i18n ? i18n.t('messages.nodeCreatedBlank') : "Click blank canvas to create a node. Select a node, then submit the form to update it.";
+        modeHint.textContent = createModeHintMessage();
     }
 }
 
@@ -493,13 +679,13 @@ async function loadGraph(options = {}) {
         showMessage(msg);
     } else {
         updateNodeFormModeHint(null);
-        showMessage(i18n ? i18n.t("canvasPanel.selectionTip") : "Click blank space to create a node. Click a node to edit its attributes.");
+        showMessage(canvasIdleMessage());
     }
 
     await Promise.all([loadAudits(), loadSavedGraphs()]);
 }
 
-network.on("click", async (params) => {
+network.on("click", (params) => {
     if (params.nodes.length > 0) {
         state.selectedNodeId = params.nodes[0];
         state.selectedConnectionId = null;
@@ -518,23 +704,10 @@ network.on("click", async (params) => {
         return;
     }
 
-    try {
-        const created = await createNodeFromForm({
-            position: params.pointer && params.pointer.canvas ? params.pointer.canvas : null,
-            reason: "created by blank canvas click",
-            fallbackContent: getDefaultNodeContent(),
-        });
-        if (!created || !created.id) {
-            return;
-        }
-
-        resetNodeFormToCreateDefaults();
-        await loadGraph({ preferredNodeId: created.id });
-        const msg = i18n ? i18n.t('messages.nodeCreated', { nodeId: created.id.slice(0, 8) }) : `Created node: ${created.id.slice(0, 8)}`;
-        showMessage(msg);
-    } catch (error) {
-        showMessage(error.message, true);
-    }
+    state.selectedNodeId = null;
+    state.selectedConnectionId = null;
+    updateNodeFormModeHint(null);
+    showMessage(blankCanvasNoCreateMessage());
 });
 
 network.on("dragEnd", async (params) => {
@@ -1052,6 +1225,87 @@ if (refreshSavedButton) {
     });
 }
 
+const settingsForm = document.getElementById("settings-form");
+if (settingsForm) {
+    settingsForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const saveButton = document.getElementById("save-settings");
+        const reloadButton = document.getElementById("reload-settings");
+        const originalSaveText = saveButton ? saveButton.textContent : "";
+
+        if (saveButton) {
+            saveButton.disabled = true;
+            saveButton.textContent = uiText("保存中...", "Saving...");
+        }
+        if (reloadButton) {
+            reloadButton.disabled = true;
+        }
+        setSettingsStatus(uiText("正在写入 app_config...", "Writing app_config..."));
+
+        try {
+            const payload = collectSettingsPayload();
+            const result = await api("/api/settings", {
+                method: "PUT",
+                body: JSON.stringify(payload),
+            });
+
+            const llmSettings = result.llm || payload.llm;
+            state.appSettings = llmSettings;
+            fillSettingsForm(llmSettings);
+
+            const backendText = String(llmSettings.backend || "-");
+            setSettingsStatus(
+                uiText(
+                    `已保存到 app_config（LLM 后端：${backendText}）`,
+                    `Saved to app_config (LLM backend: ${backendText}).`
+                )
+            );
+            showMessage(
+                uiText("设置已保存，后端 LLM 配置已刷新。", "Settings saved. LLM backend configuration refreshed.")
+            );
+        } catch (error) {
+            setSettingsStatus(error.message, true);
+            showMessage(error.message, true);
+        } finally {
+            if (saveButton) {
+                saveButton.disabled = false;
+                saveButton.textContent = originalSaveText || uiText("保存设置", "Save Settings");
+            }
+            if (reloadButton) {
+                reloadButton.disabled = false;
+            }
+        }
+    });
+}
+
+const reloadSettingsButton = document.getElementById("reload-settings");
+if (reloadSettingsButton) {
+    reloadSettingsButton.addEventListener("click", async () => {
+        const saveButton = document.getElementById("save-settings");
+        const originalReloadText = reloadSettingsButton.textContent;
+
+        reloadSettingsButton.disabled = true;
+        reloadSettingsButton.textContent = uiText("读取中...", "Reloading...");
+        if (saveButton) {
+            saveButton.disabled = true;
+        }
+
+        try {
+            await loadAppSettings();
+        } catch (error) {
+            setSettingsStatus(error.message, true);
+            showMessage(error.message, true);
+        } finally {
+            reloadSettingsButton.disabled = false;
+            reloadSettingsButton.textContent = originalReloadText || uiText("重新读取", "Reload");
+            if (saveButton) {
+                saveButton.disabled = false;
+            }
+        }
+    });
+}
+
 const verifyAuditButton = document.getElementById("verify-audit");
 if (verifyAuditButton) {
     verifyAuditButton.addEventListener("click", async () => {
@@ -1213,6 +1467,7 @@ if (refreshAllButton) {
     refreshAllButton.addEventListener("click", async () => {
         try {
             await loadGraph();
+            await loadAppSettings();
         } catch (error) {
             showMessage(error.message, true);
         }
@@ -1233,9 +1488,15 @@ if (typeof i18n !== "undefined" && i18n.ready && typeof i18n.ready.then === "fun
             loadGraph().catch((error) => {
                 showMessage(error.message, true);
             });
+            loadAppSettings().catch((error) => {
+                setSettingsStatus(error.message, true);
+            });
         });
 } else {
     loadGraph().catch((error) => {
         showMessage(error.message, true);
+    });
+    loadAppSettings().catch((error) => {
+        setSettingsStatus(error.message, true);
     });
 }

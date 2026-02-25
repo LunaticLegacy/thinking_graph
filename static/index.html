@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
 <head>
     <meta charset="utf-8">
@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
     <div class="backdrop" aria-hidden="true"></div>
@@ -50,7 +50,7 @@
                     </label>
                 </div>
                 <button type="submit" class="btn" data-i18n="nodePanel.createBtn">Create Node</button>
-                <p id="node-form-mode">创建节点请使用此表单；选中节点后，提交表单会更新该节点属性。</p>
+                <p id="node-form-mode">鍒涘缓鑺傜偣璇蜂娇鐢ㄦ琛ㄥ崟锛涢€変腑鑺傜偣鍚庯紝鎻愪氦琛ㄥ崟浼氭洿鏂拌鑺傜偣灞炴€с€?/p>
             </form>
 
             <h2 data-i18n="connectionPanel.title">Create Connection</h2>
@@ -113,18 +113,18 @@
             <section class="panel canvas-panel">
                 <div class="canvas-head">
                     <h2 data-i18n="canvasPanel.title">Graph Canvas</h2>
-                    <p id="selection-tip">点击节点可编辑；创建节点请使用左侧表单。</p>
+                    <p id="selection-tip">鐐瑰嚮鑺傜偣鍙紪杈戯紱鍒涘缓鑺傜偣璇蜂娇鐢ㄥ乏渚ц〃鍗曘€?/p>
                 </div>
                 <div id="network"></div>
             </section>
 
             <section class="panel settings-panel">
-                <h2 data-i18n="settingsPanel.title">设置（app_config）</h2>
+                <h2 data-i18n="settingsPanel.title">璁剧疆锛坅pp_config锛?/h2>
                 <form id="settings-form" class="stacked-form">
                     <fieldset class="settings-group">
-                        <legend data-i18n="settingsPanel.backend.legend">LLM 后端</legend>
+                        <legend data-i18n="settingsPanel.backend.legend">LLM 鍚庣</legend>
                         <label>
-                            <span data-i18n="settingsPanel.backend.current">当前后端</span>
+                            <span data-i18n="settingsPanel.backend.current">褰撳墠鍚庣</span>
                             <select id="settings-llm-backend">
                                 <option value="remote_api" data-i18n="settingsPanel.backend.remote_api">remote_api</option>
                                 <option value="local_api" data-i18n="settingsPanel.backend.local_api">local_api</option>
@@ -197,10 +197,10 @@
                     </fieldset>
 
                     <div class="stack-inline">
-                        <button id="reload-settings" type="button" class="btn btn-secondary" data-i18n="settingsPanel.reloadButton">重新读取</button>
-                        <button id="save-settings" type="submit" class="btn btn-secondary" data-i18n="settingsPanel.saveButton">保存设置</button>
+                        <button id="reload-settings" type="button" class="btn btn-secondary" data-i18n="settingsPanel.reloadButton">閲嶆柊璇诲彇</button>
+                        <button id="save-settings" type="submit" class="btn btn-secondary" data-i18n="settingsPanel.saveButton">淇濆瓨璁剧疆</button>
                     </div>
-                    <p id="settings-status" class="settings-status" data-i18n="settingsPanel.waitingStatus">等待读取 app_config...</p>
+                    <p id="settings-status" class="settings-status" data-i18n="settingsPanel.waitingStatus">绛夊緟璇诲彇 app_config...</p>
                 </form>
             </section>
         </div>
@@ -242,7 +242,8 @@
         </section>
     </main>
 
-    <script src="{{ url_for('static', filename='i18n.js') }}"></script>
-    <script src="{{ url_for('static', filename='app.js') }}"></script>
+    <script src="./i18n.js"></script>
+    <script src="./app.js"></script>
 </body>
 </html>
+

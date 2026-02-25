@@ -108,6 +108,12 @@ h2 {
     padding: 16px;
 }
 
+.canvas-stack {
+    display: grid;
+    gap: 18px;
+    min-height: 0;
+}
+
 .canvas-panel {
     display: grid;
     grid-template-rows: auto 1fr;
@@ -115,6 +121,50 @@ h2 {
     min-height: 0;
     overflow: hidden;
     contain: layout paint;
+}
+
+.settings-panel {
+    display: grid;
+    gap: 12px;
+}
+
+.settings-group {
+    margin: 0;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px;
+    display: grid;
+    gap: 10px;
+}
+
+.settings-group legend {
+    padding: 0 6px;
+    color: var(--muted);
+    font-size: 12px;
+    font-family: "Space Grotesk", sans-serif;
+}
+
+.settings-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+}
+
+.settings-status {
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
 }
 
 .canvas-head {
@@ -335,6 +385,10 @@ textarea {
 
     .canvas-panel {
         height: 62vh;
+    }
+
+    .settings-grid {
+        grid-template-columns: 1fr;
     }
 
     #network {

@@ -4,7 +4,29 @@ class I18n {
         this.currentLanguage = defaultLanguage;
         this.supportedLanguages = new Set(supportedLanguages);
         this.translations = {};
+        this.localesBase = this.resolveLocalesBase();
         this.ready = this.init();
+    }
+
+    resolveLocalesBase() {
+        const configuredBase = typeof window !== "undefined"
+            ? window.__THINKING_GRAPH_LOCALES_BASE__
+            : "";
+        if (typeof configuredBase === "string" && configuredBase.trim()) {
+            return configuredBase.trim().replace(/\/+$/, "");
+        }
+
+        if (typeof location !== "undefined") {
+            const protocol = (location.protocol || "").toLowerCase();
+            if (protocol === "http:" || protocol === "https:") {
+                return "/static/locales";
+            }
+        }
+        return "./locales";
+    }
+
+    languageFileUrl(language) {
+        return `${this.localesBase}/${language}.json`;
     }
 
     async init() {
@@ -43,7 +65,7 @@ class I18n {
         }
 
         try {
-            const response = await fetch(`/static/locales/${normalized}.json`, { cache: "no-cache" });
+            const response = await fetch(this.languageFileUrl(normalized), { cache: "no-cache" });
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
