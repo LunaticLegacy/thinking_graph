@@ -208,7 +208,10 @@ thinking_graph/
 - [x] Audit logging system
 - [x] Graph snapshot save/load
 - [ ] Collaborative editing (WebSocket)
-- [ ] Import/Export (Markdown, JSON, GraphML)
+  - [ ] Multi user cooperate edit
+  - [ ] Private permission for Node
+  - [ ] Tag on the Connection
+- [x] Import/Export (JSON)
 - [ ] Template library (argumentation framework presets)
 - [ ] Mobile responsiveness
 - [ ] Plugin system
