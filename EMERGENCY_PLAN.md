@@ -27,9 +27,9 @@ Main blockers:
 
 - [*] Add `LICENSE` file (MIT if intended)
 - [*] Add `CONTRIBUTING.md`
-- [ ] Update README project tree to match actual repo
-- [ ] Replace `app_config.toml` references with `app_config_example.toml`
-- [ ] Mark unfinished items explicitly as `Planned`
+- [*] Update README project tree to match actual repo
+- [*] Replace `app_config.toml` references with `app_config_example.toml`
+- [*] Mark unfinished items explicitly as `Planned`
 - [ ] Verify all relative links in README (no 404)
 
 **Done when**
@@ -41,12 +41,12 @@ Main blockers:
 ### P0-2: Minimal CI (Lint + Tests + Smoke)
 **Goal:** Every PR gets baseline validation.
 
-- [ ] Add `.github/workflows/ci.yml`
-- [ ] Run on Python 3.11
-- [ ] Install dependencies
-- [ ] Lint (`ruff` or `flake8`)
-- [ ] Test (`pytest`)
-- [ ] Import/start smoke test (app factory / `main.py` startup path)
+- [*] Add `.github/workflows/ci.yml`
+- [*] Run on Python 3.11
+- [*] Install dependencies
+- [*] Lint (`ruff` or `flake8`)
+- [*] Test (`pytest`)
+- [*] Import/start smoke test (app factory / `main.py` startup path)
 
 **Done when**
 - PRs auto-run CI
@@ -89,11 +89,11 @@ Main blockers:
 ### P0-5: Dependency / Install Hygiene
 **Goal:** Stable, reproducible setup.
 
-- [ ] Clean `requirements.txt` (remove or justify unused deps)
-- [ ] Confirm Python 3.11+ compatibility in practice
-- [ ] Split base/dev dependencies (optional but recommended)
-- [ ] Provide single documented setup flow
-- [ ] Re-check `dataclasses` backport necessity for py3.11+
+- [*] Clean `requirements.txt` (remove or justify unused deps)
+- [*] Confirm Python 3.11+ compatibility in practice
+- [*] Split base/dev dependencies (optional but recommended)
+- [*] Provide single documented setup flow
+- [*] Re-check `dataclasses` backport necessity for py3.11+
 
 **Done when**
 - Fresh environment installs successfully
@@ -105,9 +105,9 @@ Main blockers:
 **Goal:** Set correct expectations and ship responsibly.
 
 - [ ] Add project status label: `Alpha`
-- [ ] Add `CHANGELOG.md`
-- [ ] Tag first release (`v0.1.0-alpha`)
-- [ ] Add release notes
+- [*] Add `CHANGELOG.md`
+- [*] Tag first release (`v0.1.0-alpha`)
+- [*] Add release notes
 - [ ] Clarify repo identity (Web App vs Python package API)
 
 **Done when**
@@ -125,7 +125,7 @@ Main blockers:
 ---
 
 ## P2 (Polish / Product experience)
-- [ ] UX polish (empty states, undo/redo, autosave feedback)
+- [*] UX polish (empty states, undo/redo, autosave feedback)
 - [ ] Docker / docker-compose deployment path
 - [ ] Docs split (`architecture`, `deployment`, `troubleshooting`)
 - [ ] Performance tuning for large graphs
