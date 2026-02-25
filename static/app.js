@@ -29,6 +29,15 @@ function resolveApiBase() {
 }
 
 const API_BASE = resolveApiBase();
+const THEME_STORAGE_KEY = "ui-theme";
+const THEME_VALUES = new Set(["system", "light", "dark"]);
+const systemThemeMediaQuery = (
+    typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+)
+    ? window.matchMedia("(prefers-color-scheme: dark)")
+    : null;
+let currentThemePreference = "system";
 
 function buildApiUrl(path) {
     if (typeof path !== "string" || !path.trim()) {
@@ -98,6 +107,135 @@ const network = new vis.Network(
 
 let networkKeyboardEnabled = true;
 
+function normalizeThemePreference(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (THEME_VALUES.has(normalized)) {
+        return normalized;
+    }
+    return "system";
+}
+
+function readCssVariable(name, fallback = "") {
+    if (
+        typeof window === "undefined"
+        || typeof getComputedStyle !== "function"
+        || !document.documentElement
+    ) {
+        return fallback;
+    }
+    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return value || fallback;
+}
+
+function resolveSystemTheme() {
+    if (!systemThemeMediaQuery) {
+        return "light";
+    }
+    return systemThemeMediaQuery.matches ? "dark" : "light";
+}
+
+function resolveTheme(preference) {
+    const normalized = normalizeThemePreference(preference);
+    if (normalized === "system") {
+        return resolveSystemTheme();
+    }
+    return normalized;
+}
+
+function syncThemeSelector() {
+    const selector = document.getElementById("theme-selector");
+    if (!selector) {
+        return;
+    }
+    selector.value = currentThemePreference;
+}
+
+function applyNetworkTheme() {
+    network.setOptions({
+        nodes: {
+            font: {
+                face: "Space Grotesk",
+                size: 16,
+                color: readCssVariable("--network-node-font", "#1f2c34"),
+            },
+        },
+        edges: {
+            font: {
+                face: "Space Grotesk",
+                size: 10,
+                color: readCssVariable("--network-edge-font", "#495057"),
+                strokeWidth: 0,
+            },
+        },
+    });
+}
+
+function applyThemePreference(preference, { persist = true } = {}) {
+    const normalized = normalizeThemePreference(preference);
+    currentThemePreference = normalized;
+
+    const resolvedTheme = resolveTheme(normalized);
+    document.documentElement.dataset.themePreference = normalized;
+    document.documentElement.dataset.theme = resolvedTheme;
+
+    syncThemeSelector();
+    applyNetworkTheme();
+
+    if (!persist) {
+        return;
+    }
+    try {
+        localStorage.setItem(THEME_STORAGE_KEY, normalized);
+    } catch (_error) {
+        // ignore storage failures (e.g. private mode policy)
+    }
+}
+
+function readStoredThemePreference() {
+    try {
+        return normalizeThemePreference(localStorage.getItem(THEME_STORAGE_KEY));
+    } catch (_error) {
+        return "system";
+    }
+}
+
+function bindThemeSelector() {
+    const selector = document.getElementById("theme-selector");
+    if (!selector) {
+        return;
+    }
+    selector.addEventListener("change", (event) => {
+        const target = event.target;
+        applyThemePreference(target.value);
+    });
+    syncThemeSelector();
+}
+
+function bindSystemThemeListener() {
+    if (!systemThemeMediaQuery) {
+        return;
+    }
+    const handleThemeChange = () => {
+        if (currentThemePreference === "system") {
+            applyThemePreference("system", { persist: false });
+        }
+    };
+
+    if (typeof systemThemeMediaQuery.addEventListener === "function") {
+        systemThemeMediaQuery.addEventListener("change", handleThemeChange);
+        return;
+    }
+    if (typeof systemThemeMediaQuery.addListener === "function") {
+        systemThemeMediaQuery.addListener(handleThemeChange);
+    }
+}
+
+function initThemePreference() {
+    applyThemePreference(readStoredThemePreference(), { persist: false });
+    bindThemeSelector();
+    bindSystemThemeListener();
+}
+
 function showMessage(message, isError = false) {
     const tip = document.getElementById("selection-tip");
     if (!tip) {
@@ -105,7 +243,9 @@ function showMessage(message, isError = false) {
     }
     // 尝试使用国际化消息，如果找不到则使用原始消息
     tip.textContent = message || "";
-    tip.style.color = isError ? "#ca553d" : "#5f6f7c";
+    tip.style.color = isError
+        ? readCssVariable("--warn", "#ca553d")
+        : readCssVariable("--muted", "#5f6f7c");
 }
 
 function currentLanguage() {
@@ -364,7 +504,9 @@ function setSettingsStatus(message, isError = false) {
         return;
     }
     status.textContent = message || "";
-    status.style.color = isError ? "#ca553d" : "#5f6f7c";
+    status.style.color = isError
+        ? readCssVariable("--warn", "#ca553d")
+        : readCssVariable("--muted", "#5f6f7c");
 }
 
 function fillSettingsForm(llmSettings = null) {
@@ -498,24 +640,25 @@ function renderAuditBadge(status) {
 
     if (badgeStatus === "valid") {
         badge.textContent = i18n ? i18n.t("auditPanel.status.valid") : "Valid";
-        badge.style.background = "#d7efe1";
-        badge.style.color = "#2d936c";
+        badge.style.background = readCssVariable("--status-valid-bg", "#d7efe1");
+        badge.style.color = readCssVariable("--status-valid-ink", "#2d936c");
         return;
     }
 
     if (badgeStatus === "invalid") {
         badge.textContent = i18n ? i18n.t("auditPanel.status.invalid") : "Invalid";
-        badge.style.background = "#fde4df";
-        badge.style.color = "#ca553d";
+        badge.style.background = readCssVariable("--status-invalid-bg", "#fde4df");
+        badge.style.color = readCssVariable("--status-invalid-ink", "#ca553d");
         return;
     }
 
     badge.textContent = i18n ? i18n.t("auditPanel.status.unchecked") : "Unchecked";
-    badge.style.background = "#ece6dc";
-    badge.style.color = "#5f6f7c";
+    badge.style.background = readCssVariable("--status-unchecked-bg", "#ece6dc");
+    badge.style.color = readCssVariable("--status-unchecked-ink", "#5f6f7c");
 }
 
 function refreshRuntimeI18nText() {
+    syncThemeSelector();
     renderAuditBadge();
     renderSavedGraphs(state.savedGraphs || [], document.getElementById("saved-graphs")?.value || null);
 
@@ -1507,6 +1650,7 @@ if (refreshAllButton) {
     });
 }
 
+initThemePreference();
 setColorInputValue(DEFAULT_NODE_COLOR);
 
 document.addEventListener("i18n:changed", () => {

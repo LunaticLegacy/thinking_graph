@@ -1,4 +1,5 @@
 # virtual environment
+.tmp
 .venv
 
 # config file

@@ -16,12 +16,22 @@
         <div class="topbar-left">
             <p class="eyebrow" data-i18n="header.title">Thinking Graph</p>
             <h1 data-i18n="header.subtitle">Opinion Node Relationship Map</h1>
-            <div class="language-switcher" role="group">
-                <span class="language-label" data-i18n="language.label">Interface Language</span>
-                <select id="language-selector" data-i18n-aria-label="language.ariaLabel">
-                    <option value="zh" data-i18n="language.options.zh">Simplified Chinese</option>
-                    <option value="en" data-i18n="language.options.en">English</option>
-                </select>
+            <div class="topbar-controls">
+                <div class="language-switcher" role="group">
+                    <span class="language-label" data-i18n="language.label">Interface Language</span>
+                    <select id="language-selector" data-i18n-aria-label="language.ariaLabel">
+                        <option value="zh" data-i18n="language.options.zh">Simplified Chinese</option>
+                        <option value="en" data-i18n="language.options.en">English</option>
+                    </select>
+                </div>
+                <div class="theme-switcher" role="group">
+                    <span class="theme-label" data-i18n="theme.label">Theme</span>
+                    <select id="theme-selector" data-i18n-aria-label="theme.ariaLabel">
+                        <option value="system" data-i18n="theme.options.system">Follow System</option>
+                        <option value="light" data-i18n="theme.options.light">Light</option>
+                        <option value="dark" data-i18n="theme.options.dark">Dark</option>
+                    </select>
+                </div>
             </div>
         </div>
         <button id="refresh-all" class="btn btn-secondary" data-i18n="header.refresh">Refresh</button>

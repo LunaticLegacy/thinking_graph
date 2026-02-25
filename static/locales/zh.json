@@ -180,5 +180,14 @@
     "no": "否",
     "ok": "确定",
     "cancel": "取消"
+  },
+  "theme": {
+    "label": "主题",
+    "ariaLabel": "选择界面主题",
+    "options": {
+      "system": "跟随系统",
+      "light": "浅色",
+      "dark": "夜间模式"
+    }
   }
 }
