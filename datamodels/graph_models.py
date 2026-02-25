@@ -228,6 +228,46 @@ class GraphLoadResult:
 
 
 @dataclass(slots=True)
+class GraphExportResult:
+    format: str
+    exported_at: str
+    node_count: int
+    connection_count: int
+    suggested_file_name: str
+    nodes: list[JsonObject]
+    connections: list[JsonObject]
+
+
+@dataclass(slots=True)
+class GraphImportPayload:
+    nodes: list[JsonObject]
+    connections: list[JsonObject]
+    reason: str | None = None
+    has_graph_data: bool = False
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, object]) -> "GraphImportPayload":
+        graph_block = _to_mapping(data.get("graph")) or _to_mapping(data.get("snapshot"))
+        source = graph_block or data
+        nodes = _to_json_object_list(source.get("nodes"))
+        connections = _to_json_object_list(source.get("connections"))
+        return cls(
+            nodes=nodes,
+            connections=connections,
+            reason=_to_optional_str(data.get("reason")),
+            has_graph_data=("nodes" in source or "connections" in source),
+        )
+
+
+@dataclass(slots=True)
+class GraphImportResult:
+    node_count: int
+    connection_count: int
+    imported_at: str
+    message: str
+
+
+@dataclass(slots=True)
 class GraphClearPayload:
     reason: str | None = None
 
@@ -543,3 +583,14 @@ def _to_str_list(value: object) -> list[str]:
     if isinstance(value, list):
         return [str(item) for item in value]
     return []
+
+
+def _to_json_object_list(value: object) -> list[JsonObject]:
+    if not isinstance(value, list):
+        return []
+
+    items: list[JsonObject] = []
+    for item in value:
+        if isinstance(item, Mapping):
+            items.append({str(key): cast_value for key, cast_value in item.items()})
+    return items

@@ -1,4 +1,4 @@
-﻿"""LLM integration entry for backend APIs."""
+"""LLM integration entry for backend APIs."""
 
 from __future__ import annotations
 
@@ -41,6 +41,15 @@ class LLMService:
         "你会在每次对话中收到当前思考图（JSON）。"
         "回答时必须结合该思考图，不要忽略其中的节点和连接关系。"
         "当用户问题与图中信息冲突时，先指出冲突，再给出建议。"
+    )
+    GRAPH_GENERATE_SYSTEM_PROMPT = (
+        "你是思考图生成器。"
+        "你只能输出 JSON，禁止输出 markdown、解释文字或多余字段。"
+        '输出格式必须是 {"nodes":[...],"connections":[...]}。'
+        "每个节点必须有 id 与 content。"
+        "每条连接必须有 source_id、target_id、conn_type。"
+        "连接类型仅可使用: supports / opposes / relates / leads_to / derives_from。"
+        "禁止自环；source_id 与 target_id 必须引用已存在节点。"
     )
 
     def __init__(
@@ -262,6 +271,216 @@ class LLMService:
             temperature=float(payload.temperature),
             max_new_tokens=max(int(payload.max_tokens), 1),
         )
+
+    def generate_graph_from_topic(
+        self,
+        topic: str,
+        *,
+        temperature: float = 0.2,
+        max_tokens: int = 1400,
+        max_nodes: int = 18,
+    ) -> dict[str, Any]:
+        topic_text = topic.strip()
+        if not topic_text:
+            raise ValueError("`topic` is required.")
+
+        normalized_max_nodes = min(max(int(max_nodes), 3), 40)
+
+        if not self.enabled:
+            return {
+                "enabled": False,
+                "model": self.model or self.config.model,
+                "message": self._disabled_reason
+                or "LLM backend is unavailable. Check backend/runtime configuration.",
+                "nodes": [],
+                "connections": [],
+                "node_count": 0,
+                "connection_count": 0,
+            }
+
+        prompt = self._build_generate_graph_prompt(
+            topic_text,
+            max_nodes=normalized_max_nodes,
+        )
+        chat_result = self.ask(
+            LLMChatRequest(
+                prompt=prompt,
+                system_prompt=self.GRAPH_GENERATE_SYSTEM_PROMPT,
+                temperature=float(temperature),
+                max_tokens=max(int(max_tokens), 1),
+            )
+        )
+        raw_response = (chat_result.response or "").strip()
+
+        if not chat_result.enabled:
+            return {
+                "enabled": False,
+                "model": chat_result.model or self.model or self.config.model,
+                "message": raw_response or "LLM graph generation failed.",
+                "nodes": [],
+                "connections": [],
+                "node_count": 0,
+                "connection_count": 0,
+            }
+
+        payload = self._extract_json_payload(raw_response)
+        if payload is None:
+            return {
+                "enabled": True,
+                "model": chat_result.model or self.model or self.config.model,
+                "message": "LLM did not return valid JSON for graph generation.",
+                "nodes": [],
+                "connections": [],
+                "node_count": 0,
+                "connection_count": 0,
+            }
+
+        graph_payload = payload
+        nested_payload = payload.get("graph")
+        if isinstance(nested_payload, dict):
+            graph_payload = nested_payload
+
+        nodes, connections = self._normalize_generated_graph_payload(
+            graph_payload,
+            max_nodes=normalized_max_nodes,
+        )
+
+        if not nodes:
+            return {
+                "enabled": True,
+                "model": chat_result.model or self.model or self.config.model,
+                "message": "LLM did not return valid nodes.",
+                "nodes": [],
+                "connections": [],
+                "node_count": 0,
+                "connection_count": 0,
+            }
+
+        return {
+            "enabled": True,
+            "model": chat_result.model or self.model or self.config.model,
+            "message": "graph generated",
+            "nodes": nodes,
+            "connections": connections,
+            "node_count": len(nodes),
+            "connection_count": len(connections),
+        }
+
+    def _build_generate_graph_prompt(self, topic: str, *, max_nodes: int) -> str:
+        connection_types = " / ".join(sorted(ConnectionType.values()))
+        return (
+            "请围绕下列主题生成思考图。\n"
+            f"主题: {topic}\n\n"
+            "要求:\n"
+            f"1. 节点数量 3 到 {max_nodes} 之间。\n"
+            "2. 节点要简洁、可讨论，content 不能为空。\n"
+            f"3. conn_type 只允许: {connection_types}。\n"
+            "4. 连接必须是有向边，且禁止自环。\n"
+            "5. source_id 与 target_id 必须引用已定义节点。\n"
+            "6. 如有必要可生成较少连接，但必须保证图结构清晰。\n"
+            '7. 只输出 JSON 对象: {"nodes":[...],"connections":[...]}。\n'
+        )
+
+    def _normalize_generated_graph_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        max_nodes: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        raw_nodes = payload.get("nodes")
+        if not isinstance(raw_nodes, list):
+            return [], []
+
+        nodes: list[dict[str, Any]] = []
+        used_node_ids: set[str] = set()
+
+        for index, item in enumerate(raw_nodes, start=1):
+            if not isinstance(item, dict):
+                continue
+
+            content = str(item.get("content", "")).strip()
+            if not content:
+                continue
+
+            raw_id = str(item.get("id", "")).strip() or f"N{index}"
+            node_id = raw_id
+            suffix = 2
+            while node_id in used_node_ids:
+                node_id = f"{raw_id}_{suffix}"
+                suffix += 1
+            used_node_ids.add(node_id)
+
+            summary = str(item.get("summary", "")).strip()
+            confidence = self._clamp_float(
+                self._to_float(item.get("confidence"), 1.0),
+                0.0,
+                1.0,
+            )
+            color = self._normalize_hex_color(
+                str(item.get("color", "")).strip() or None
+            )
+
+            nodes.append(
+                {
+                    "id": node_id,
+                    "content": content,
+                    "summary": summary,
+                    "confidence": confidence,
+                    "color": color,
+                }
+            )
+            if len(nodes) >= max_nodes:
+                break
+
+        if not nodes:
+            return [], []
+
+        node_ids = {node["id"] for node in nodes}
+        raw_connections = payload.get("connections")
+        connections: list[dict[str, Any]] = []
+
+        if not isinstance(raw_connections, list):
+            return nodes, connections
+
+        for item in raw_connections:
+            if not isinstance(item, dict):
+                continue
+
+            source_id = str(item.get("source_id", "")).strip()
+            target_id = str(item.get("target_id", "")).strip()
+            if (
+                not source_id
+                or not target_id
+                or source_id == target_id
+                or source_id not in node_ids
+                or target_id not in node_ids
+            ):
+                continue
+
+            conn_type = str(
+                item.get("conn_type", ConnectionType.RELATES.value)
+            ).strip()
+            if conn_type not in ConnectionType.values():
+                conn_type = ConnectionType.RELATES.value
+
+            description = str(item.get("description", "")).strip()
+            strength = self._clamp_float(
+                self._to_float(item.get("strength"), 1.0),
+                0.1,
+                3.0,
+            )
+
+            connections.append(
+                {
+                    "source_id": source_id,
+                    "target_id": target_id,
+                    "conn_type": conn_type,
+                    "description": description,
+                    "strength": strength,
+                }
+            )
+
+        return nodes, connections
 
     def review_graph(self, snapshot: GraphSnapshot) -> LLMGraphReviewResponse:
         rule_conflicts = self._rule_based_conflicts(snapshot)
@@ -538,3 +757,24 @@ class LLMService:
             for item in conflicts
         ]
         return "\n".join(rows)
+
+    @staticmethod
+    def _to_float(value: object, default: float) -> float:
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                return default
+        return default
+
+    @staticmethod
+    def _clamp_float(value: float, low: float, high: float) -> float:
+        return min(max(value, low), high)
+
+    @staticmethod
+    def _normalize_hex_color(value: str | None) -> str:
+        if value and re.fullmatch(r"#(?:[0-9a-fA-F]{6})", value):
+            return value.lower()
+        return "#157f83"

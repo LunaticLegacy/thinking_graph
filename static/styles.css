@@ -135,6 +135,13 @@ h2 {
     margin-bottom: 16px;
 }
 
+.dual-field-row {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
+}
+
 label {
     display: grid;
     gap: 6px;
@@ -158,6 +165,31 @@ textarea {
     padding: 10px 11px;
     color: var(--ink);
     background: #fff;
+}
+
+#node-color {
+    height: 42px;
+    padding: 6px;
+    cursor: pointer;
+}
+
+#node-color::-webkit-color-swatch-wrapper {
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#node-color::-webkit-color-swatch {
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--line);
+    border-radius: 0;
+}
+
+#node-color::-moz-color-swatch {
+    border: 1px solid var(--line);
+    border-radius: 0;
 }
 
 textarea {
@@ -204,7 +236,9 @@ textarea {
 #load-graph,
 #refresh-saved,
 #delete-saved-graph,
-#clear-graph {
+#clear-graph,
+#export-graph,
+#import-graph {
     white-space: nowrap;
 }
 
@@ -301,5 +335,9 @@ textarea {
 
     .layout {
         padding: 12px;
+    }
+
+    .dual-field-row {
+        grid-template-columns: 1fr;
     }
 }

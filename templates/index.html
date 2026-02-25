@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
 <head>
     <meta charset="utf-8">
@@ -15,7 +15,7 @@
     <header class="topbar fade-in">
         <div>
             <p class="eyebrow">Thinking Graph</p>
-            <h1>观点节点关系图</h1>
+            <h1>观点节点关系�?/h1>
         </div>
         <button id="refresh-all" class="btn btn-secondary">刷新</button>
     </header>
@@ -26,16 +26,22 @@
             <form id="node-form" class="stacked-form">
                 <label>
                     观点内容
-                    <textarea id="node-content" required placeholder="例如：远程办公可以提升深度工作效率"></textarea>
+                    <textarea id="node-content" required placeholder="例如：远程办公可以提升深度工作效�?></textarea>
                 </label>
                 <label>
-                    简短摘要
-                    <input id="node-summary" type="text" placeholder="例如：远程办公提升效率">
+                    简短摘�?
+                    <input id="node-summary" type="text" placeholder="例如：远程办公提升效�?>
                 </label>
-                <label>
-                    置信度 (0~1)
-                    <input id="node-confidence" type="number" min="0" max="1" step="0.1" value="1">
-                </label>
+                <div class="dual-field-row">
+                    <label>
+                        置信�?(0~1)
+                        <input id="node-confidence" type="number" min="0" max="1" step="0.1" value="1">
+                    </label>
+                    <label>
+                        节点颜色
+                        <input id="node-color" type="color" value="#157f83">
+                    </label>
+                </div>
                 <button type="submit" class="btn">创建节点</button>
             </form>
 
@@ -61,7 +67,7 @@
                 </label>
                 <label>
                     关系描述
-                    <input id="conn-description" type="text" placeholder="例如：A 作为 B 的前提条件">
+                    <input id="conn-description" type="text" placeholder="例如：A 作为 B 的前提条�?>
                 </label>
                 <button type="submit" class="btn">创建连接</button>
             </form>
@@ -69,54 +75,69 @@
             <div class="stack-inline">
                 <button id="delete-node" class="btn btn-danger">删除选中节点</button>
                 <button id="delete-connection" class="btn btn-danger">删除选中连接</button>
+                <button id="update-node-color" class="btn btn-secondary">更新选中节点颜色</button>
             </div>
 
             <h2>保存/加载思考图</h2>
             <form id="graph-save-form" class="stacked-form">
                 <label>
                     快照名称
-                    <input id="save-graph-name" type="text" placeholder="例如：讨论版本-v1" required>
+                    <input id="save-graph-name" type="text" placeholder="例如：讨论版�?v1" required>
                 </label>
-                <button type="submit" class="btn btn-secondary">保存当前图</button>
+                <button type="submit" class="btn btn-secondary">保存当前�?/button>
             </form>
             <div class="stack-inline">
                 <select id="saved-graphs"></select>
-                <button id="load-graph" type="button" class="btn btn-secondary">加载选中图</button>
+                <button id="load-graph" type="button" class="btn btn-secondary">加载选中�?/button>
                 <button id="refresh-saved" type="button" class="btn btn-secondary">刷新列表</button>
                 <button id="delete-saved-graph" type="button" class="btn btn-danger">删除已保存图</button>
-                <button id="clear-graph" type="button" class="btn btn-danger">清空当前图</button>
+                <button id="clear-graph" type="button" class="btn btn-danger">清空当前�?/button>
+            </div>
+            <div class="stack-inline">
+                <button id="export-graph" type="button" class="btn btn-secondary">Export JSON</button>
+                <button id="import-graph" type="button" class="btn btn-secondary">Import JSON</button>
+                <input id="import-graph-file" type="file" accept=".json,application/json" hidden>
             </div>
         </section>
 
         <section class="panel canvas-panel fade-in delay-2">
             <div class="canvas-head">
-                <h2>关系图</h2>
+                <h2>关系�?/h2>
                 <p id="selection-tip">点击节点或连接查看并操作</p>
             </div>
             <div id="network"></div>
         </section>
 
         <section class="panel fade-in delay-3">
-            <h2>审计状态</h2>
+            <h2>审计状�?/h2>
             <div class="stack-inline">
-                <button id="verify-audit" class="btn btn-secondary">审计完整性检查</button>
-                <span id="audit-status" class="badge">未检查</span>
+                <button id="verify-audit" class="btn btn-secondary">审计完整性检�?/button>
+                <span id="audit-status" class="badge">未检�?/span>
             </div>
             <ul id="audit-issues" class="issues"></ul>
 
-            <h2>最近审计记录</h2>
+            <h2>最近审计记�?/h2>
             <ul id="audit-list" class="audit-list"></ul>
 
             <h2>LLM 入口</h2>
             <div class="stack-inline">
-                <button id="llm-review-graph" type="button" class="btn btn-secondary">一键审核思考图有效性</button>
+                <button id="llm-review-graph" type="button" class="btn btn-secondary">一键审核思考图有效�?/button>
             </div>
             <pre id="llm-review-response" class="llm-output">等待审核...</pre>
+
+            <form id="llm-generate-form" class="stacked-form">
+                <label>
+                    Topic
+                    <textarea id="llm-generate-topic" required placeholder="输入主题，让 LLM 生成思考图并覆盖当前图"></textarea>
+                </label>
+                <button type="submit" class="btn btn-secondary">生成并覆盖当前图</button>
+            </form>
+            <pre id="llm-generate-response" class="llm-output">等待生成...</pre>
 
             <form id="llm-form" class="stacked-form">
                 <label>
                     Prompt
-                    <textarea id="llm-prompt" required placeholder="让 LLM 帮我拆分该主题的关键观点与冲突关系"></textarea>
+                    <textarea id="llm-prompt" required placeholder="�?LLM 帮我拆分该主题的关键观点与冲突关�?></textarea>
                 </label>
                 <button type="submit" class="btn">调用 LLM</button>
             </form>
@@ -127,3 +148,4 @@
     <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
+

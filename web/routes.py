@@ -18,6 +18,7 @@ from datamodels.graph_models import (
     ErrorResponse,
     GraphClearPayload,
     GraphDeletePayload,
+    GraphImportPayload,
     GraphLoadPayload,
     GraphSavePayload,
     HealthResponse,
@@ -203,11 +204,27 @@ def save_graph():
     return jsonify(to_json_ready(result))
 
 
+@web_bp.get("/api/graphs/export")
+def export_graph():
+    result = graph_service().export_graph()
+    return jsonify(to_json_ready(result))
+
+
 @web_bp.post("/api/graphs/load")
 def load_graph():
     payload = GraphLoadPayload.from_mapping(payload_mapping())
     try:
         result = graph_service().load_graph(payload, actor=actor_name(), reason=payload.reason)
+    except ValueError as exc:
+        return jsonify(to_json_ready(ErrorResponse(error=str(exc)))), 400
+    return jsonify(to_json_ready(result))
+
+
+@web_bp.post("/api/graphs/import")
+def import_graph():
+    payload = GraphImportPayload.from_mapping(payload_mapping())
+    try:
+        result = graph_service().import_graph(payload, actor=actor_name(), reason=payload.reason)
     except ValueError as exc:
         return jsonify(to_json_ready(ErrorResponse(error=str(exc)))), 400
     return jsonify(to_json_ready(result))
@@ -244,6 +261,140 @@ def llm_chat():
         return jsonify(to_json_ready(ErrorResponse(error=f"LLM request failed: {exc}"))), 502
 
     return jsonify(to_json_ready(answer))
+
+
+@web_bp.post("/api/llm/generate-graph")
+def llm_generate_graph():
+    payload = payload_mapping()
+    topic = str(payload.get("topic", "")).strip()
+    if not topic:
+        return jsonify(to_json_ready(ErrorResponse(error="`topic` is required."))), 400
+
+    try:
+        temperature = float(payload.get("temperature", 0.2))
+    except (TypeError, ValueError):
+        temperature = 0.2
+
+    try:
+        max_tokens = int(payload.get("max_tokens", 1400))
+    except (TypeError, ValueError):
+        max_tokens = 1400
+
+    try:
+        max_nodes = int(payload.get("max_nodes", 18))
+    except (TypeError, ValueError):
+        max_nodes = 18
+
+    try:
+        generated = llm_service().generate_graph_from_topic(
+            topic=topic,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            max_nodes=max_nodes,
+        )
+    except ValueError as exc:
+        return jsonify(to_json_ready(ErrorResponse(error=str(exc)))), 400
+    except Exception as exc:
+        return jsonify(to_json_ready(ErrorResponse(error=f"LLM generate graph failed: {exc}"))), 502
+
+    if not bool(generated.get("enabled", False)):
+        return jsonify(to_json_ready(generated))
+
+    generated_nodes = generated.get("nodes")
+    if not isinstance(generated_nodes, list) or not generated_nodes:
+        return jsonify(
+            to_json_ready(
+                ErrorResponse(
+                    error=str(
+                        generated.get("message")
+                        or "LLM did not return valid nodes for graph generation."
+                    )
+                )
+            )
+        ), 502
+
+    actor = actor_name()
+    reason = f"llm generate graph from topic: {topic[:80]}"
+
+    graph_service().clear_graph(
+        GraphClearPayload(reason=reason),
+        actor=actor,
+        reason=reason,
+    )
+
+    node_id_map: dict[str, str] = {}
+    created_nodes = 0
+    created_connections = 0
+
+    for item in generated_nodes:
+        if not isinstance(item, Mapping):
+            continue
+
+        source_node_id = str(item.get("id", "")).strip()
+        node_payload = NodeCreatePayload.from_mapping(
+            {
+                "content": item.get("content", ""),
+                "summary": item.get("summary", ""),
+                "confidence": item.get("confidence", 1.0),
+                "color": item.get("color", "#157f83"),
+                "reason": reason,
+            }
+        )
+        try:
+            created = graph_service().create_node(
+                payload=node_payload,
+                actor=actor,
+                reason=reason,
+            )
+        except ValueError:
+            continue
+
+        created_nodes += 1
+        if source_node_id:
+            node_id_map[source_node_id] = created.id
+
+    generated_connections = generated.get("connections")
+    if isinstance(generated_connections, list):
+        for item in generated_connections:
+            if not isinstance(item, Mapping):
+                continue
+
+            old_source = str(item.get("source_id", "")).strip()
+            old_target = str(item.get("target_id", "")).strip()
+            new_source = node_id_map.get(old_source)
+            new_target = node_id_map.get(old_target)
+            if not new_source or not new_target or new_source == new_target:
+                continue
+
+            conn_payload = ConnectionCreatePayload.from_mapping(
+                {
+                    "source_id": new_source,
+                    "target_id": new_target,
+                    "conn_type": item.get("conn_type", "relates"),
+                    "description": item.get("description", ""),
+                    "strength": item.get("strength", 1.0),
+                    "reason": reason,
+                }
+            )
+            try:
+                graph_service().create_connection(
+                    payload=conn_payload,
+                    actor=actor,
+                    reason=reason,
+                )
+            except ValueError:
+                continue
+            created_connections += 1
+
+    return jsonify(
+        {
+            "enabled": True,
+            "model": generated.get("model"),
+            "message": "graph replaced by LLM generation",
+            "node_count": created_nodes,
+            "connection_count": created_connections,
+        }
+    )
 
 
 @web_bp.post("/api/llm/review-graph")

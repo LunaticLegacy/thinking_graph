@@ -1,4 +1,4 @@
-﻿"""Visualization payload helpers for web graph rendering."""
+"""Visualization payload helpers for web graph rendering."""
 
 from __future__ import annotations
 
@@ -23,19 +23,22 @@ EDGE_COLORS: dict[str, str] = {
 
 def build_vis_payload(nodes: list[Node], connections: list[Connection]) -> VisualizationPayload:
     """Convert domain objects to frontend-friendly datasets."""
-    node_payload = [
-        VisualNode(
-            id=node.id,
-            label=node.summary or node.content[:24],
-            title=node.content,
-            x=node.position.x,
-            y=node.position.y,
-            color=node.color,
-            value=max(node.size, 0.2),
-            confidence=node.confidence,
+    node_payload: list[VisualNode] = []
+    for index, node in enumerate(nodes, start=1):
+        node_label = node.summary or node.content[:24]
+        title_parts = [f"#{index}", node.content]
+        node_payload.append(
+            VisualNode(
+                id=node.id,
+                label=f"{index}. {node_label}",
+                title="\n".join(part for part in title_parts if part),
+                x=node.position.x,
+                y=node.position.y,
+                color=node.color,
+                value=max(node.size, 0.2),
+                confidence=node.confidence,
+            )
         )
-        for node in nodes
-    ]
 
     edge_payload = [
         VisualEdge(

@@ -19,3 +19,7 @@
 - `LLM_NPU_DEVICE=NPU`
 - `LLM_REQUIRE_NPU=true`
 - `LLM_ONNX_PROVIDER=QNNExecutionProvider`（可选）
+
+## 转换脚本使用说明
+
+将`huggingface`的模型转化为可被 OpenVino 或 Onnxruntime 使用的模型格式。

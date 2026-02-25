@@ -25,6 +25,9 @@ from datamodels.graph_models import (
     GraphClearResult,
     GraphDeletePayload,
     GraphDeleteResult,
+    GraphExportResult,
+    GraphImportPayload,
+    GraphImportResult,
     GraphLoadPayload,
     GraphLoadResult,
     GraphSavePayload,
@@ -536,6 +539,28 @@ class GraphService:
             visualization=vis_payload,
         )
 
+    def export_graph(self) -> GraphExportResult:
+        snapshot = self.graph_snapshot()
+        node_states = [node.to_state() for node in snapshot.nodes]
+        connection_states = [conn.to_state() for conn in snapshot.connections]
+        exported_at = utc_now()
+        safe_stamp = (
+            exported_at.replace(":", "-")
+            .replace(".", "-")
+            .replace("+", "p")
+        )
+        file_name = f"thinking-graph-export-{safe_stamp}.json"
+
+        return GraphExportResult(
+            format="thinking-graph-export-v1",
+            exported_at=exported_at,
+            node_count=len(node_states),
+            connection_count=len(connection_states),
+            suggested_file_name=file_name,
+            nodes=node_states,
+            connections=connection_states,
+        )
+
     def save_graph(
         self,
         payload: GraphSavePayload,
@@ -642,9 +667,68 @@ class GraphService:
             else payload.reason if payload.reason is not None
             else f"load graph snapshot: {name}"
         )
-        clear_reason = f"{audit_reason} [clear existing graph]"
-        create_reason = f"{audit_reason} [restore snapshot]"
+        self._replace_graph_content(
+            parsed_nodes=parsed_nodes,
+            parsed_connections=parsed_connections,
+            actor=actor,
+            clear_reason=f"{audit_reason} [clear existing graph]",
+            create_reason=f"{audit_reason} [restore snapshot]",
+        )
+
+        loaded_snapshot = self.graph_snapshot()
+        return GraphLoadResult(
+            name=name,
+            loaded_at=utc_now(),
+            message="graph snapshot loaded",
+            snapshot=loaded_snapshot,
+        )
+
+    def import_graph(
+        self,
+        payload: GraphImportPayload,
+        actor: str,
+        reason: str | None = None,
+    ) -> GraphImportResult:
+        if not payload.has_graph_data:
+            raise ValueError("import payload must contain `nodes` or `connections` fields.")
+
+        parsed_nodes = [Node.from_state(item) for item in payload.nodes]
+        parsed_connections = [Connection.from_state(item) for item in payload.connections]
+
+        audit_reason = (
+            reason
+            if reason is not None
+            else payload.reason if payload.reason is not None
+            else "import graph payload"
+        )
+
+        restored_nodes, restored_connections = self._replace_graph_content(
+            parsed_nodes=parsed_nodes,
+            parsed_connections=parsed_connections,
+            actor=actor,
+            clear_reason=f"{audit_reason} [clear existing graph]",
+            create_reason=f"{audit_reason} [import payload]",
+        )
+
+        return GraphImportResult(
+            node_count=restored_nodes,
+            connection_count=restored_connections,
+            imported_at=utc_now(),
+            message="graph imported",
+        )
+
+    def _replace_graph_content(
+        self,
+        *,
+        parsed_nodes: list[Node],
+        parsed_connections: list[Connection],
+        actor: str,
+        clear_reason: str,
+        create_reason: str,
+    ) -> tuple[int, int]:
         now = utc_now()
+        restored_node_count = 0
+        restored_connection_count = 0
 
         with self.repository.transaction() as conn:
             active_connections = conn.execute(
@@ -706,7 +790,6 @@ class GraphService:
                 )
 
             node_id_map: dict[str, str] = {}
-            restored_nodes: list[Node] = []
             for source_node in parsed_nodes:
                 restored = Node.from_state(source_node.to_state())
                 original_id = restored.id
@@ -716,7 +799,6 @@ class GraphService:
                 restored.version = 1
                 restored.is_deleted = False
                 node_id_map[original_id] = restored.id
-                restored_nodes.append(restored)
 
                 conn.execute(
                     """
@@ -757,6 +839,7 @@ class GraphService:
                         after_state=restored.to_state(),
                     ),
                 )
+                restored_node_count += 1
 
             for source_conn in parsed_connections:
                 if source_conn.source_id not in node_id_map or source_conn.target_id not in node_id_map:
@@ -766,6 +849,8 @@ class GraphService:
                 restored.id = str(uuid.uuid4())
                 restored.source_id = node_id_map[source_conn.source_id]
                 restored.target_id = node_id_map[source_conn.target_id]
+                if restored.source_id == restored.target_id:
+                    continue
                 restored.created_at = now
                 restored.updated_at = now
                 restored.version = 1
@@ -804,14 +889,9 @@ class GraphService:
                         after_state=restored.to_state(),
                     ),
                 )
+                restored_connection_count += 1
 
-        loaded_snapshot = self.graph_snapshot()
-        return GraphLoadResult(
-            name=name,
-            loaded_at=utc_now(),
-            message="graph snapshot loaded",
-            snapshot=loaded_snapshot,
-        )
+        return restored_node_count, restored_connection_count
 
     def delete_saved_graph(
         self,

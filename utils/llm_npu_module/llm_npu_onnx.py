@@ -17,6 +17,7 @@ except ImportError:  # pragma: no cover - optional dependency
 
 
 ORT_NPU_PROVIDERS: tuple[str, ...] = (
+    "CPUExecutionProvider",
     "QNNExecutionProvider",
     "VitisAIExecutionProvider",
     "ACLExecutionProvider",
