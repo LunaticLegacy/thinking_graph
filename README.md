@@ -63,6 +63,7 @@ pip install -r requirements.txt
 ```bash
 # 复制配置文件
 cp app_config_example.toml app_config.toml
+# 正式的配置文集为app_config.toml
 
 # 编辑配置，选择你的 LLM 后端
 # - remote_api: DeepSeek / OpenAI / Claude
@@ -197,26 +198,29 @@ review_result = graph.ai_review()
 
 ```
 thinking_graph/
-├── backend/              # 业务逻辑层
-│   ├── services/         # 核心服务
+├── backend/                    # 业务逻辑层
+│   ├── services/               # 核心服务
 │   │   ├── graph_service.py    # 图操作 CRUD
 │   │   └── llm_service.py      # LLM 集成
-│   └── repository.py     # 数据访问层
-├── core/                 # 领域核心
-│   ├── graph.py          # 图模型与算法
-│   └── visualization.py  # 可视化渲染
-├── datamodels/           # 数据模型定义
-├── web/                  # Web 路由与控制器
-├── static/               # 前端资源
-├── templates/            # HTML 模板
-├── utils/                # 工具模块
-│   ├── databaseman/      # 数据库管理
-│   ├── llm_fetcher/      # LLM 客户端
-│   └── llm_npu_module/   # NPU 推理加速
-├── config/               # 配置模块
-├── tests/                # 测试套件 🚧
-├── app_config.toml       # 应用配置
-└── main.py               # 入口文件
+│   └── repository.py           # 数据访问层
+├── config/                     # 配置文件
+├── core/                       # 领域核心
+│   ├── graph.py                # 图模型与算法
+│   └── visualization.py        # 可视化渲染
+├── data/                       # 用户数据存储
+├── datamodels/                 # 数据模型定义
+├── docs/                       # 文档
+├── models/                     # LLM 模型存放位置
+├── static/                     # 前端资源
+├── templates/                  # HTML 模板
+├── tests/                      # 测试套件 🚧
+├── utils/                      # 工具模块
+│   ├── databaseman/            # 数据库管理
+│   ├── llm_fetcher/            # LLM 客户端
+│   └── llm_npu_module/         # NPU 推理加速
+├── web/                        # Web 路由与控制器
+├── app_config_example.toml     # 应用配置示例
+└── main.py                     # 入口文件
 ```
 
 ---
@@ -235,6 +239,7 @@ thinking_graph/
 
 ---
 
+
 ## 🤝 贡献指南
 
 我们欢迎所有形式的贡献！
@@ -251,7 +256,7 @@ thinking_graph/
 
 ## 📄 许可证
 
-[MIT](LICENSE) © 2026 LunaNeko
+[MIT](LICENSE) © 2026 月と猫 - LunaNeko
 
 ---
 
@@ -259,6 +264,6 @@ thinking_graph/
 
 **[⬆ 回到顶部](#thinking-graph)**
 
-Made with ❤️ and ☕ by [LunaNeko](https://github.com/LunaticLegacy)
+Made with ❤️ and ☕ by [月と猫 - LunaNeko](https://github.com/LunaticLegacy)
 
 </div>

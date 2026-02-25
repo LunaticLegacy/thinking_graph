@@ -25,8 +25,8 @@ Main blockers:
 ### P0-1: README / Repository Consistency
 **Goal:** Remove trust-breaking inconsistencies and dead links.
 
-- [ ] Add `LICENSE` file (MIT if intended)
-- [ ] Add `CONTRIBUTING.md`
+- [*] Add `LICENSE` file (MIT if intended)
+- [*] Add `CONTRIBUTING.md`
 - [ ] Update README project tree to match actual repo
 - [ ] Replace `app_config.toml` references with `app_config_example.toml`
 - [ ] Mark unfinished items explicitly as `Planned`

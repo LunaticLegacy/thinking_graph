@@ -197,26 +197,29 @@ Supports exporting audit reports, verifying data integrity, and rolling back to 
 
 ```
 thinking_graph/
-├── backend/              # Business logic layer
-│   ├── services/         # Core services
+├── backend/                    # Business logic layer
+│   ├── services/               # Core services
 │   │   ├── graph_service.py    # Graph CRUD operations
 │   │   └── llm_service.py      # LLM integration
-│   └── repository.py     # Data access layer
-├── core/                 # Domain core
-│   ├── graph.py          # Graph models & algorithms
-│   └── visualization.py  # Visualization rendering
-├── datamodels/           # Data model definitions
-├── web/                  # Web routes & controllers
-├── static/               # Frontend assets
-├── templates/            # HTML templates
-├── utils/                # Utility modules
-│   ├── databaseman/      # Database management
-│   ├── llm_fetcher/      # LLM clients
-│   └── llm_npu_module/   # NPU inference acceleration
-├── config/               # Configuration modules
-├── tests/                # Test suite 🚧
-├── app_config.toml       # Application config
-└── main.py               # Entry point
+│   └── repository.py           # Data access layer
+├── config/                     # Configuration files
+├── core/                       # Domain core
+│   ├── graph.py                # Graph models and algorithms
+│   └── visualization.py        # Visualization rendering
+├── data/                       # User data storage
+├── datamodels/                 # Data model definitions
+├── docs/                       # Documentation
+├── models/                     # LLM model storage
+├── static/                     # Frontend static assets
+├── templates/                  # HTML templates
+├── tests/                      # Test suite 🚧
+├── utils/                      # Utility modules
+│   ├── databaseman/            # Database management
+│   ├── llm_fetcher/            # LLM client
+│   └── llm_npu_module/         # NPU inference acceleration
+├── web/                        # Web routes and controllers
+├── app_config_example.toml     # Example application configuration
+└── main.py                     # Entry point
 ```
 
 ---
@@ -251,7 +254,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ## 📄 License
 
-[MIT](LICENSE) © 2026 LunaNeko
+[MIT](LICENSE) © 2026 月と猫 - LunaNeko
 
 ---
 
@@ -259,6 +262,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 **[⬆ Back to Top](#thinking-graph)**
 
-Made with ❤️ and ☕ by [LunaNeko](https://github.com/LunaticLegacy)
+Made with ❤️ and ☕ by [L月と猫 - LunaNekoo](https://github.com/LunaticLegacy)
 
 </div>
