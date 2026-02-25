@@ -5,6 +5,18 @@
     "subtitle": "Opinion Node Relationship Map",
     "refresh": "Refresh"
   },
+  "language": {
+    "label": "Interface Language",
+    "ariaLabel": "Select interface language",
+    "options": {
+      "zh": "\u7b80\u4f53\u4e2d\u6587",
+      "en": "English"
+    }
+  },
+  "canvasPanel": {
+    "title": "Graph Canvas",
+    "selectionTip": "Click blank space to create a node. Click a node to edit its attributes."
+  },
   "nodePanel": {
     "title": "Add Opinion Node",
     "contentLabel": "Opinion Content",
@@ -15,9 +27,9 @@
     "colorLabel": "Node Color",
     "createBtn": "Create Node",
     "updateHint": "Click blank canvas to create a node; after selecting a node, submitting the form will update the node properties.",
-    "editNode": "Editing node %nodeId%",
+    "editNode": "Update Node %nodeId%",
     "createNode": "Create Node",
-    "blankCanvasHint": "Click blank space to create a node; click a node to edit its attributes"
+    "defaultContent": "New node"
   },
   "connectionPanel": {
     "title": "Create Connection",
@@ -51,7 +63,8 @@
     "deleteBtn": "Delete Saved Graph",
     "clearBtn": "Clear Current Graph",
     "exportJson": "Export JSON",
-    "importJson": "Import JSON"
+    "importJson": "Import JSON",
+    "noGraphs": "No saved graphs"
   },
   "auditPanel": {
     "title": "Audit Status",
@@ -62,7 +75,9 @@
       "invalid": "Invalid"
     },
     "historyTitle": "Recent Audit Records",
+    "recordItem": "%action% %entityType% %entityId% by %actor%",
     "noRecords": "No audit records",
+    "allChainsComplete": "All nodes and connections have complete audit chains.",
     "llmTitle": "LLM Interface",
     "reviewBtn": "Review Graph Validity",
     "waitingReview": "Waiting for review...",
@@ -73,13 +88,27 @@
     "promptLabel": "Prompt",
     "promptPlaceholder": "Ask LLM to break down key opinions and conflicting relationships in this topic",
     "callBtn": "Call LLM",
-    "waitingCall": "Waiting for call..."
+    "waitingCall": "Waiting for call...",
+    "requesting": "Requesting...",
+    "emptyResponse": "(empty response)",
+    "reviewing": "Reviewing...",
+    "ok": "OK",
+    "globalScope": "global",
+    "noReason": "No reason provided.",
+    "conflictsDetected": "Conflicts detected.",
+    "topicRequired": "Please enter a topic first.",
+    "confirmOverwrite": "This will replace the current graph and discard unsaved changes. Continue?",
+    "cancelled": "Cancelled.",
+    "generating": "Generating...",
+    "llmUnavailable": "LLM backend is unavailable.",
+    "generatedResult": "Generated and replaced graph: %nodes% nodes / %connections% connections"
   },
   "messages": {
     "nodeRequired": "Node content is required.",
     "invalidColor": "Node color must be a valid hex color (e.g., #157f83).",
     "nodeCreated": "Created node: %nodeId%",
     "nodeUpdated": "Updated selected node attributes.",
+    "nodeColorUpdated": "Updated selected node color.",
     "nodeSelected": "Selected node: %nodeId%",
     "connectionSelected": "Selected connection: %connectionId%",
     "noNodeSelected": "Please select a node first.",
@@ -95,7 +124,15 @@
     "confirmDelete": "Delete saved graph \"%name%\"?",
     "snapshotNameRequired": "Please enter a snapshot name.",
     "nodeEdited": "Editing node %nodeId%. Submitting the form updates this node.",
-    "nodeCreatedBlank": "Click blank canvas to create a node. Select a node, then submit the form to update it."
+    "nodeCreatedBlank": "Click blank canvas to create a node. Select a node, then submit the form to update it.",
+    "clearGraphConfirm": "Clear the current graph? This action will be recorded in audit logs.",
+    "graphCleared": "Cleared current graph: %nodes% nodes / %connections% connections",
+    "importGraphConfirm": "Importing a graph will replace the current graph. Continue?",
+    "invalidJsonFile": "Invalid JSON file.",
+    "graphImported": "Imported graph: %nodes% nodes / %connections% connections",
+    "graphExported": "Exported graph: %nodes% nodes / %connections% connections",
+    "savedGraphListRefreshed": "Saved graph list refreshed.",
+    "llmGeneratedReplaced": "LLM generated and replaced the current graph."
   },
   "errors": {
     "requestFailed": "Request failed with status %status%",

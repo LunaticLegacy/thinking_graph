@@ -67,9 +67,15 @@ function showMessage(message, isError = false) {
         return;
     }
     // 尝试使用国际化消息，如果找不到则使用原始消息
-    const translatedMessage = typeof i18n !== 'undefined' ? i18n.t(message) : message;
-    tip.textContent = translatedMessage || message;
+    tip.textContent = message || "";
     tip.style.color = isError ? "#ca553d" : "#5f6f7c";
+}
+
+function currentLanguage() {
+    if (typeof i18n !== "undefined" && typeof i18n.getCurrentLanguage === "function") {
+        return i18n.getCurrentLanguage();
+    }
+    return "zh";
 }
 
 async function api(url, options = {}) {
@@ -212,13 +218,19 @@ function renderAudits(audits) {
 
     for (const audit of audits) {
         const item = document.createElement("li");
-        item.textContent = `${audit.action.toUpperCase()} ${audit.entity_type} ${audit.entity_id.slice(0, 8)} by ${audit.actor}`;
+        const action = (audit.action || "").toUpperCase();
+        const entityType = audit.entity_type || "-";
+        const entityId = (audit.entity_id || "").slice(0, 8);
+        const actor = audit.actor || "-";
+        item.textContent = i18n
+            ? i18n.t("auditPanel.recordItem", { action, entityType, entityId, actor })
+            : `${action} ${entityType} ${entityId} by ${actor}`;
         list.appendChild(item);
     }
 
     if (!audits.length) {
         const item = document.createElement("li");
-        item.textContent = "No audit records.";
+        item.textContent = i18n ? i18n.t("auditPanel.noRecords") : "No audit records";
         list.appendChild(item);
     }
 }
@@ -247,7 +259,7 @@ function renderSavedGraphs(graphs, preferredName = null) {
     if (!graphs.length) {
         const option = document.createElement("option");
         option.value = "";
-        option.textContent = "No saved graphs.";
+        option.textContent = i18n ? i18n.t("saveLoadPanel.noGraphs") : "No saved graphs";
         select.appendChild(option);
         select.value = "";
         return;
@@ -267,7 +279,67 @@ async function loadSavedGraphs(preferredName = null) {
 }
 
 const DEFAULT_NODE_COLOR = "#157f83";
-const DEFAULT_NODE_CONTENT = "New node";
+function getDefaultNodeContent() {
+    return i18n ? i18n.t("nodePanel.defaultContent") : "New node";
+}
+
+function renderAuditBadge(status) {
+    const badge = document.getElementById("audit-status");
+    if (!badge) {
+        return;
+    }
+
+    const badgeStatus = status || badge.dataset.status || "unchecked";
+    badge.dataset.status = badgeStatus;
+
+    if (badgeStatus === "valid") {
+        badge.textContent = i18n ? i18n.t("auditPanel.status.valid") : "Valid";
+        badge.style.background = "#d7efe1";
+        badge.style.color = "#2d936c";
+        return;
+    }
+
+    if (badgeStatus === "invalid") {
+        badge.textContent = i18n ? i18n.t("auditPanel.status.invalid") : "Invalid";
+        badge.style.background = "#fde4df";
+        badge.style.color = "#ca553d";
+        return;
+    }
+
+    badge.textContent = i18n ? i18n.t("auditPanel.status.unchecked") : "Unchecked";
+    badge.style.background = "#ece6dc";
+    badge.style.color = "#5f6f7c";
+}
+
+function refreshRuntimeI18nText() {
+    renderAuditBadge();
+    renderSavedGraphs(state.savedGraphs || [], document.getElementById("saved-graphs")?.value || null);
+
+    if (state.selectedNodeId) {
+        const selectedNode = state.nodes.find((item) => item.id === state.selectedNodeId);
+        if (selectedNode) {
+            updateNodeFormModeHint(selectedNode);
+        } else {
+            updateNodeFormModeHint(null);
+        }
+    } else {
+        updateNodeFormModeHint(null);
+    }
+
+    if (state.selectedNodeId) {
+        const msg = i18n
+            ? i18n.t("messages.nodeSelected", { nodeId: state.selectedNodeId.slice(0, 8) })
+            : `Selected node: ${state.selectedNodeId.slice(0, 8)}`;
+        showMessage(msg);
+    } else if (state.selectedConnectionId) {
+        const msg = i18n
+            ? i18n.t("messages.connectionSelected", { connectionId: state.selectedConnectionId.slice(0, 8) })
+            : `Selected connection: ${state.selectedConnectionId.slice(0, 8)}`;
+        showMessage(msg);
+    } else {
+        showMessage(i18n ? i18n.t("canvasPanel.selectionTip") : "Click blank space to create a node. Click a node to edit its attributes.");
+    }
+}
 
 function getNodeFormElements() {
     const form = document.getElementById("node-form");
@@ -304,7 +376,7 @@ function updateNodeFormModeHint(selectedNode = null) {
             submitButton.textContent = i18n ? i18n.t('nodePanel.editNode', { nodeId: selectedNode.id.slice(0, 8) }) : "Update selected node";
         }
         if (modeHint) {
-            modeHint.textContent = i18n ? i18n.t('nodePanel.nodeEdited', { nodeId: selectedNode.id.slice(0, 8) }) : `Editing node ${selectedNode.id.slice(0, 8)}. Submitting the form updates this node.`;
+            modeHint.textContent = i18n ? i18n.t('messages.nodeEdited', { nodeId: selectedNode.id.slice(0, 8) }) : `Editing node ${selectedNode.id.slice(0, 8)}. Submitting the form updates this node.`;
         }
         return;
     }
@@ -313,7 +385,7 @@ function updateNodeFormModeHint(selectedNode = null) {
         submitButton.textContent = i18n ? i18n.t('nodePanel.createNode') : "Create node";
     }
     if (modeHint) {
-        modeHint.textContent = i18n ? i18n.t('nodePanel.nodeCreatedBlank') : "Click blank canvas to create a node. Select a node, then submit the form to update it.";
+        modeHint.textContent = i18n ? i18n.t('messages.nodeCreatedBlank') : "Click blank canvas to create a node. Select a node, then submit the form to update it.";
     }
 }
 
@@ -421,7 +493,7 @@ async function loadGraph(options = {}) {
         showMessage(msg);
     } else {
         updateNodeFormModeHint(null);
-        showMessage(i18n ? i18n.t('nodePanel.blankCanvasHint') : "Click blank space to create a node. Click a node to edit its attributes.");
+        showMessage(i18n ? i18n.t("canvasPanel.selectionTip") : "Click blank space to create a node. Click a node to edit its attributes.");
     }
 
     await Promise.all([loadAudits(), loadSavedGraphs()]);
@@ -450,7 +522,7 @@ network.on("click", async (params) => {
         const created = await createNodeFromForm({
             position: params.pointer && params.pointer.canvas ? params.pointer.canvas : null,
             reason: "created by blank canvas click",
-            fallbackContent: DEFAULT_NODE_CONTENT,
+            fallbackContent: getDefaultNodeContent(),
         });
         if (!created || !created.id) {
             return;
@@ -648,7 +720,7 @@ if (tidyGraphButton) {
         const previousSelectedNodeId = state.selectedNodeId;
         const originalText = tidyGraphButton.textContent;
         tidyGraphButton.disabled = true;
-        tidyGraphButton.textContent = i18n ? i18n.t('messages.tidying') : "整理中...";
+        tidyGraphButton.textContent = i18n ? i18n.t('messages.tidying') : "Tidying...";
 
         try {
             await stabilizeNetworkLayout();
@@ -745,7 +817,8 @@ if (updateNodeColorButton) {
                 }),
             });
             await loadGraph({ preferredNodeId: nodeId });
-            showMessage("Updated selected node color.");
+            const msg = i18n ? i18n.t("messages.nodeColorUpdated") : "Updated selected node color.";
+            showMessage(msg);
         } catch (error) {
             showMessage(error.message, true);
         }
@@ -841,7 +914,8 @@ if (deleteSavedGraphButton) {
                 }),
             });
             await loadSavedGraphs();
-            showMessage(`Deleted graph: ${result.name}`);
+            const msg = i18n ? i18n.t("messages.graphDeleted", { name: result.name }) : `Deleted graph: ${result.name}`;
+            showMessage(msg);
         } catch (error) {
             showMessage(error.message, true);
         }
@@ -851,7 +925,11 @@ if (deleteSavedGraphButton) {
 const clearGraphButton = document.getElementById("clear-graph");
 if (clearGraphButton) {
     clearGraphButton.addEventListener("click", async () => {
-        const confirmed = window.confirm("Clear the current graph? This action will be recorded in audit logs.");
+        const confirmed = window.confirm(
+            i18n
+                ? i18n.t("messages.clearGraphConfirm")
+                : "Clear the current graph? This action will be recorded in audit logs."
+        );
         if (!confirmed) {
             return;
         }
@@ -864,7 +942,13 @@ if (clearGraphButton) {
                 }),
             });
             await loadGraph();
-            showMessage(`Cleared current graph: ${result.cleared_nodes} nodes / ${result.cleared_connections} connections`);
+            const msg = i18n
+                ? i18n.t("messages.graphCleared", {
+                    nodes: result.cleared_nodes,
+                    connections: result.cleared_connections,
+                })
+                : `Cleared current graph: ${result.cleared_nodes} nodes / ${result.cleared_connections} connections`;
+            showMessage(msg);
         } catch (error) {
             showMessage(error.message, true);
         }
@@ -887,7 +971,13 @@ if (exportGraphButton) {
             link.remove();
             URL.revokeObjectURL(url);
 
-            showMessage(`Exported graph: ${result.node_count || 0} nodes / ${result.connection_count || 0} connections`);
+            const msg = i18n
+                ? i18n.t("messages.graphExported", {
+                    nodes: result.node_count || 0,
+                    connections: result.connection_count || 0,
+                })
+                : `Exported graph: ${result.node_count || 0} nodes / ${result.connection_count || 0} connections`;
+            showMessage(msg);
         } catch (error) {
             showMessage(error.message, true);
         }
@@ -908,7 +998,9 @@ if (importGraphButton && importGraphFileInput) {
         }
 
         const confirmed = window.confirm(
-            "Importing a graph will replace the current graph. Continue?"
+            i18n
+                ? i18n.t("messages.importGraphConfirm")
+                : "Importing a graph will replace the current graph. Continue?"
         );
         if (!confirmed) {
             event.target.value = "";
@@ -921,7 +1013,7 @@ if (importGraphButton && importGraphFileInput) {
             try {
                 parsed = JSON.parse(rawText);
             } catch (_error) {
-                throw new Error("Invalid JSON file.");
+                throw new Error(i18n ? i18n.t("messages.invalidJsonFile") : "Invalid JSON file.");
             }
 
             const result = await api("/api/graphs/import", {
@@ -932,9 +1024,13 @@ if (importGraphButton && importGraphFileInput) {
                 }),
             });
             await loadGraph();
-            showMessage(
-                `Imported graph: ${result.node_count || 0} nodes / ${result.connection_count || 0} connections`
-            );
+            const msg = i18n
+                ? i18n.t("messages.graphImported", {
+                    nodes: result.node_count || 0,
+                    connections: result.connection_count || 0,
+                })
+                : `Imported graph: ${result.node_count || 0} nodes / ${result.connection_count || 0} connections`;
+            showMessage(msg);
         } catch (error) {
             showMessage(error.message, true);
         } finally {
@@ -948,7 +1044,8 @@ if (refreshSavedButton) {
     refreshSavedButton.addEventListener("click", async () => {
         try {
             await loadSavedGraphs();
-            showMessage("Saved graph list refreshed.");
+            const msg = i18n ? i18n.t("messages.savedGraphListRefreshed") : "Saved graph list refreshed.";
+            showMessage(msg);
         } catch (error) {
             showMessage(error.message, true);
         }
@@ -968,16 +1065,14 @@ if (verifyAuditButton) {
             issuesEl.innerHTML = "";
 
             if (status.ok) {
-                badge.textContent = "PASSED";
-                badge.style.background = "#d7efe1";
-                badge.style.color = "#2d936c";
+                renderAuditBadge("valid");
                 const item = document.createElement("li");
-                item.textContent = "All nodes and connections have complete audit chains.";
+                item.textContent = i18n
+                    ? i18n.t("auditPanel.allChainsComplete")
+                    : "All nodes and connections have complete audit chains.";
                 issuesEl.appendChild(item);
             } else {
-                badge.textContent = "FAILED";
-                badge.style.background = "#fde4df";
-                badge.style.color = "#ca553d";
+                renderAuditBadge("invalid");
                 for (const issue of status.issues || []) {
                     const item = document.createElement("li");
                     item.textContent = issue;
@@ -995,20 +1090,24 @@ if (llmForm) {
     llmForm.addEventListener("submit", async (event) => {
         event.preventDefault();
 
+        const language = currentLanguage();
         const prompt = document.getElementById("llm-prompt").value;
         const output = document.getElementById("llm-response");
-        output.textContent = "Requesting...";
+        output.textContent = i18n ? i18n.t("auditPanel.requesting") : "Requesting...";
 
         try {
             const result = await api("/api/llm/chat", {
                 method: "POST",
                 body: JSON.stringify({
                     prompt,
-                    system_prompt: "You are a structured-thinking assistant. Answer concisely.",
+                    system_prompt: language === "en"
+                        ? "You are a structured-thinking assistant. Answer concisely in English."
+                        : "你是结构化思考助手。请用中文简洁回答。",
                     temperature: 0.3,
+                    language,
                 }),
             });
-            output.textContent = result.response || "(empty response)";
+            output.textContent = result.response || (i18n ? i18n.t("auditPanel.emptyResponse") : "(empty response)");
         } catch (error) {
             output.textContent = error.message;
         }
@@ -1018,32 +1117,33 @@ if (llmForm) {
 const llmReviewGraphButton = document.getElementById("llm-review-graph");
 if (llmReviewGraphButton) {
     llmReviewGraphButton.addEventListener("click", async () => {
+        const language = currentLanguage();
         const output = document.getElementById("llm-review-response");
-        output.textContent = "Reviewing...";
+        output.textContent = i18n ? i18n.t("auditPanel.reviewing") : "Reviewing...";
 
         try {
             const result = await api("/api/llm/review-graph", {
                 method: "POST",
-                body: JSON.stringify({}),
+                body: JSON.stringify({ language }),
             });
 
             if ((result.verdict || "").toUpperCase() === "OK") {
-                output.textContent = "OK";
+                output.textContent = i18n ? i18n.t("auditPanel.ok") : "OK";
                 return;
             }
 
             const rows = [];
             for (const item of result.conflicts || []) {
-                const type = item.entity_type || "global";
-                const id = item.entity_id || "global";
-                const reason = item.reason || "No reason provided.";
+                const type = item.entity_type || (i18n ? i18n.t("auditPanel.globalScope") : "global");
+                const id = item.entity_id || (i18n ? i18n.t("auditPanel.globalScope") : "global");
+                const reason = item.reason || (i18n ? i18n.t("auditPanel.noReason") : "No reason provided.");
                 rows.push(`[${type}] ${id}: ${reason}`);
             }
 
             if (rows.length) {
                 output.textContent = rows.join("\n");
             } else {
-                output.textContent = result.response || "Conflicts detected.";
+                output.textContent = result.response || (i18n ? i18n.t("auditPanel.conflictsDetected") : "Conflicts detected.");
             }
         } catch (error) {
             output.textContent = error.message;
@@ -1056,23 +1156,26 @@ if (llmGenerateForm) {
     llmGenerateForm.addEventListener("submit", async (event) => {
         event.preventDefault();
 
+        const language = currentLanguage();
         const topic = (document.getElementById("llm-generate-topic").value || "").trim();
         const output = document.getElementById("llm-generate-response");
 
         if (!topic) {
-            output.textContent = "Please enter a topic first.";
+            output.textContent = i18n ? i18n.t("auditPanel.topicRequired") : "Please enter a topic first.";
             return;
         }
 
         const confirmed = window.confirm(
-            "This will replace the current graph and discard unsaved changes. Continue?"
+            i18n
+                ? i18n.t("auditPanel.confirmOverwrite")
+                : "This will replace the current graph and discard unsaved changes. Continue?"
         );
         if (!confirmed) {
-            output.textContent = "Cancelled.";
+            output.textContent = i18n ? i18n.t("auditPanel.cancelled") : "Cancelled.";
             return;
         }
 
-        output.textContent = "Generating...";
+        output.textContent = i18n ? i18n.t("auditPanel.generating") : "Generating...";
 
         try {
             const result = await api("/api/llm/generate-graph", {
@@ -1082,17 +1185,23 @@ if (llmGenerateForm) {
                     temperature: 0.2,
                     max_tokens: 1400,
                     max_nodes: 18,
+                    language,
                 }),
             });
 
             if (!result.enabled) {
-                output.textContent = result.message || "LLM backend is unavailable.";
+                output.textContent = result.message || (i18n ? i18n.t("auditPanel.llmUnavailable") : "LLM backend is unavailable.");
                 return;
             }
 
             await loadGraph();
-            output.textContent = `Generated and replaced graph: ${result.node_count} nodes / ${result.connection_count} connections`;
-            showMessage("LLM generated and replaced the current graph.");
+            output.textContent = i18n
+                ? i18n.t("auditPanel.generatedResult", {
+                    nodes: result.node_count,
+                    connections: result.connection_count,
+                })
+                : `Generated and replaced graph: ${result.node_count} nodes / ${result.connection_count} connections`;
+            showMessage(i18n ? i18n.t("messages.llmGeneratedReplaced") : "LLM generated and replaced the current graph.");
         } catch (error) {
             output.textContent = error.message;
         }
@@ -1112,6 +1221,21 @@ if (refreshAllButton) {
 
 setColorInputValue(DEFAULT_NODE_COLOR);
 
-loadGraph().catch((error) => {
-    showMessage(error.message, true);
+document.addEventListener("i18n:changed", () => {
+    refreshRuntimeI18nText();
 });
+
+if (typeof i18n !== "undefined" && i18n.ready && typeof i18n.ready.then === "function") {
+    i18n.ready
+        .catch(() => {})
+        .finally(() => {
+            refreshRuntimeI18nText();
+            loadGraph().catch((error) => {
+                showMessage(error.message, true);
+            });
+        });
+} else {
+    loadGraph().catch((error) => {
+        showMessage(error.message, true);
+    });
+}

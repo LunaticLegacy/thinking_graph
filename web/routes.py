@@ -300,6 +300,9 @@ def llm_chat():
 def llm_generate_graph():
     payload = payload_mapping()
     topic = str(payload.get("topic", "")).strip()
+    language = str(payload.get("language", "zh")).strip().lower()
+    if language not in {"zh", "en"}:
+        language = "zh"
     if not topic:
         return jsonify(to_json_ready(ErrorResponse(error="`topic` is required."))), 400
 
@@ -324,6 +327,7 @@ def llm_generate_graph():
             temperature=temperature,
             max_tokens=max_tokens,
             max_nodes=max_nodes,
+            language=language,
         )
     except ValueError as exc:
         return jsonify(to_json_ready(ErrorResponse(error=str(exc)))), 400
@@ -435,9 +439,13 @@ def llm_generate_graph():
 
 @web_bp.post("/api/llm/review-graph")
 def llm_review_graph():
+    payload = payload_mapping()
+    language = str(payload.get("language", "zh")).strip().lower()
+    if language not in {"zh", "en"}:
+        language = "zh"
     snapshot = graph_service().graph_snapshot()
     try:
-        result = llm_service().review_graph(snapshot)
+        result = llm_service().review_graph(snapshot, language=language)
     except ValueError as exc:
         return jsonify(to_json_ready(ErrorResponse(error=str(exc)))), 400
     except Exception as exc:

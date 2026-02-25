@@ -52,6 +52,39 @@ class LLMService:
         "禁止自环；source_id 与 target_id 必须引用已存在节点。"
     )
 
+    THINKING_GRAPH_PARADIGM_EN: tuple[str, ...] = (
+        "Each node must contain a clear claim; node.content must not be empty.",
+        "Each connection must link two different nodes; self-loop is forbidden (source_id != target_id).",
+        "Each connection type must be one of: supports / opposes / relates / leads_to / derives_from.",
+        "Connection semantics: supports=supports, opposes=opposes, relates=related, leads_to=leads to, derives_from=derives from.",
+        "Both source_id and target_id of each connection must refer to existing node ids.",
+        "For the same directed pair, supports and opposes must not coexist.",
+    )
+
+    REVIEW_SYSTEM_PROMPT_EN = (
+        "You are a thinking-graph auditor. "
+        "Output JSON only; no markdown or extra explanation. "
+        'If valid, output {"result":"OK"}. '
+        'If invalid, output {"result":"CONFLICT","conflicts":[{"entity_type":"node|connection|global","entity_id":"id-or-global","reason":"..."}]}. '
+        "Each conflict must reference an id from input or use global."
+    )
+
+    CHAT_GRAPH_SYSTEM_PROMPT_EN = (
+        "You will receive the current thinking graph (JSON) in each request. "
+        "Your answer must use node and connection information from that graph. "
+        "If user input conflicts with graph facts, explain the conflict first, then provide suggestions."
+    )
+
+    GRAPH_GENERATE_SYSTEM_PROMPT_EN = (
+        "You are a thinking-graph generator. "
+        "Output JSON only; no markdown or extra explanation. "
+        'Output schema: {"nodes":[...],"connections":[...]}. '
+        "Each node must include id and content. "
+        "Each connection must include source_id, target_id, conn_type. "
+        "conn_type must be one of: supports / opposes / relates / leads_to / derives_from. "
+        "No self-loop; source_id and target_id must reference existing nodes."
+    )
+
     def __init__(
         self,
         llm_config: LLMConfig | None = None,
@@ -96,6 +129,35 @@ class LLMService:
         if self.backend in RUNTIME_BACKENDS:
             return self._local_backend is not None
         return False
+
+    @staticmethod
+    def _normalize_language(language: str | None) -> str:
+        candidate = (language or "zh").strip().lower()
+        return "en" if candidate == "en" else "zh"
+
+    def _review_system_prompt(self, language: str) -> str:
+        normalized = self._normalize_language(language)
+        if normalized == "en":
+            return self.REVIEW_SYSTEM_PROMPT_EN
+        return self.REVIEW_SYSTEM_PROMPT
+
+    def _chat_graph_system_prompt(self, language: str) -> str:
+        normalized = self._normalize_language(language)
+        if normalized == "en":
+            return self.CHAT_GRAPH_SYSTEM_PROMPT_EN
+        return self.CHAT_GRAPH_SYSTEM_PROMPT
+
+    def _graph_generate_system_prompt(self, language: str) -> str:
+        normalized = self._normalize_language(language)
+        if normalized == "en":
+            return self.GRAPH_GENERATE_SYSTEM_PROMPT_EN
+        return self.GRAPH_GENERATE_SYSTEM_PROMPT
+
+    def _thinking_graph_paradigm(self, language: str) -> tuple[str, ...]:
+        normalized = self._normalize_language(language)
+        if normalized == "en":
+            return self.THINKING_GRAPH_PARADIGM_EN
+        return self.THINKING_GRAPH_PARADIGM
 
     def _init_api_backend(
         self,
@@ -197,23 +259,26 @@ class LLMService:
             "[END_CURRENT_THINKING_GRAPH_JSON]\n"
         )
 
-        merged_system_prompt = self.CHAT_GRAPH_SYSTEM_PROMPT
+        language = self._normalize_language(payload.language)
+        merged_system_prompt = self._chat_graph_system_prompt(language)
         if payload.system_prompt:
             merged_system_prompt = (
-                f"{payload.system_prompt.strip()}\n\n{self.CHAT_GRAPH_SYSTEM_PROMPT}"
+                f"{payload.system_prompt.strip()}\n\n{self._chat_graph_system_prompt(language)}"
             )
 
-        merged_prompt = (
-            f"{payload.prompt.strip()}\n\n"
-            "请结合下面的当前思考图作答：\n"
-            f"{graph_block}"
+        graph_instruction = (
+            "Please answer based on the current thinking graph below:\n"
+            if language == "en"
+            else "\u8bf7\u7ed3\u5408\u4e0b\u9762\u7684\u5f53\u524d\u601d\u8003\u56fe\u4f5c\u7b54\uff1a\n"
         )
+        merged_prompt = f"{payload.prompt.strip()}\n\n{graph_instruction}{graph_block}"
 
         return LLMChatRequest(
             prompt=merged_prompt,
             system_prompt=merged_system_prompt,
             temperature=payload.temperature,
             max_tokens=payload.max_tokens,
+            language=language,
         )
 
     @staticmethod
@@ -279,7 +344,9 @@ class LLMService:
         temperature: float = 0.2,
         max_tokens: int = 1400,
         max_nodes: int = 18,
+        language: str = "zh",
     ) -> dict[str, Any]:
+        normalized_language = self._normalize_language(language)
         topic_text = topic.strip()
         if not topic_text:
             raise ValueError("`topic` is required.")
@@ -301,13 +368,15 @@ class LLMService:
         prompt = self._build_generate_graph_prompt(
             topic_text,
             max_nodes=normalized_max_nodes,
+            language=normalized_language,
         )
         chat_result = self.ask(
             LLMChatRequest(
                 prompt=prompt,
-                system_prompt=self.GRAPH_GENERATE_SYSTEM_PROMPT,
+                system_prompt=self._graph_generate_system_prompt(normalized_language),
                 temperature=float(temperature),
                 max_tokens=max(int(max_tokens), 1),
+                language=normalized_language,
             )
         )
         raw_response = (chat_result.response or "").strip()
@@ -366,19 +435,34 @@ class LLMService:
             "connection_count": len(connections),
         }
 
-    def _build_generate_graph_prompt(self, topic: str, *, max_nodes: int) -> str:
+    def _build_generate_graph_prompt(self, topic: str, *, max_nodes: int, language: str = "zh") -> str:
         connection_types = " / ".join(sorted(ConnectionType.values()))
+        normalized_language = self._normalize_language(language)
+        if normalized_language == "en":
+            return (
+                "Generate a thinking graph for the topic below.\n"
+                f"Topic: {topic}\n\n"
+                "Requirements:\n"
+                f"1. Node count between 3 and {max_nodes}.\n"
+                "2. Nodes should be concise and debatable; content must not be empty.\n"
+                f"3. conn_type can only be: {connection_types}.\n"
+                "4. Connections are directed and self-loop is forbidden.\n"
+                "5. source_id and target_id must reference defined nodes.\n"
+                "6. Keep structure clear; sparse connections are acceptable when appropriate.\n"
+                '7. Output JSON only: {"nodes":[...],"connections":[...]}\n'
+            )
+
         return (
-            "请围绕下列主题生成思考图。\n"
-            f"主题: {topic}\n\n"
-            "要求:\n"
-            f"1. 节点数量 3 到 {max_nodes} 之间。\n"
-            "2. 节点要简洁、可讨论，content 不能为空。\n"
-            f"3. conn_type 只允许: {connection_types}。\n"
-            "4. 连接必须是有向边，且禁止自环。\n"
-            "5. source_id 与 target_id 必须引用已定义节点。\n"
-            "6. 如有必要可生成较少连接，但必须保证图结构清晰。\n"
-            '7. 只输出 JSON 对象: {"nodes":[...],"connections":[...]}。\n'
+            "\u8bf7\u56f4\u7ed5\u4e0b\u5217\u4e3b\u9898\u751f\u6210\u601d\u8003\u56fe\u3002\n"
+            f"\u4e3b\u9898: {topic}\n\n"
+            "\u8981\u6c42:\n"
+            f"1. \u8282\u70b9\u6570\u91cf 3 \u5230 {max_nodes} \u4e4b\u95f4\u3002\n"
+            "2. \u8282\u70b9\u8981\u7b80\u6d01\u3001\u53ef\u8ba8\u8bba\uff0ccontent \u4e0d\u80fd\u4e3a\u7a7a\u3002\n"
+            f"3. conn_type \u53ea\u5141\u8bb8 {connection_types}\u3002\n"
+            "4. \u8fde\u63a5\u5fc5\u987b\u662f\u6709\u5411\u8fb9\uff0c\u4e14\u7981\u6b62\u81ea\u73af\u3002\n"
+            "5. source_id \u548c target_id \u5fc5\u987b\u5f15\u7528\u5df2\u5b9a\u4e49\u8282\u70b9\u3002\n"
+            "6. \u5982\u6709\u5fc5\u8981\u53ef\u751f\u6210\u8f83\u5c11\u8fde\u63a5\uff0c\u4f46\u9700\u4fdd\u8bc1\u56fe\u7ed3\u6784\u6e05\u6670\u3002\n"
+            '7. \u53ea\u8f93\u51fa JSON \u5bf9\u8c61: {"nodes":[...],"connections":[...]}\n'
         )
 
     def _normalize_generated_graph_payload(
@@ -482,27 +566,35 @@ class LLMService:
 
         return nodes, connections
 
-    def review_graph(self, snapshot: GraphSnapshot) -> LLMGraphReviewResponse:
-        rule_conflicts = self._rule_based_conflicts(snapshot)
+    def review_graph(self, snapshot: GraphSnapshot, *, language: str = "zh") -> LLMGraphReviewResponse:
+        normalized_language = self._normalize_language(language)
+        rule_conflicts = self._rule_based_conflicts(snapshot, language=normalized_language)
         llm_conflicts: list[LLMGraphConflict] = []
         raw_response = ""
 
         if self.enabled:
-            prompt = self._build_review_prompt(snapshot)
+            prompt = self._build_review_prompt(snapshot, language=normalized_language)
             chat_result = self.ask(
                 LLMChatRequest(
                     prompt=prompt,
-                    system_prompt=self.REVIEW_SYSTEM_PROMPT,
+                    system_prompt=self._review_system_prompt(normalized_language),
                     temperature=0.0,
                     max_tokens=900,
+                    language=normalized_language,
                 )
             )
             raw_response = (chat_result.response or "").strip()
-            llm_conflicts = self._parse_review_response(raw_response)
+            llm_conflicts = self._parse_review_response(
+                raw_response,
+                language=normalized_language,
+            )
         else:
             raw_response = self._disabled_reason or "LLM backend is unavailable."
 
-        conflicts = self._merge_conflicts(rule_conflicts + llm_conflicts)
+        conflicts = self._merge_conflicts(
+            rule_conflicts + llm_conflicts,
+            language=normalized_language,
+        )
         verdict = "OK" if not conflicts else "CONFLICT"
 
         response_text = "OK" if verdict == "OK" else (
@@ -515,12 +607,14 @@ class LLMService:
             verdict=verdict,
             conflicts=conflicts,
             response=response_text,
-            paradigm=list(self.THINKING_GRAPH_PARADIGM),
+            paradigm=list(self._thinking_graph_paradigm(normalized_language)),
         )
 
-    def _build_review_prompt(self, snapshot: GraphSnapshot) -> str:
+    def _build_review_prompt(self, snapshot: GraphSnapshot, *, language: str = "zh") -> str:
+        normalized_language = self._normalize_language(language)
         paradigm_text = "\n".join(
-            f"{index}. {item}" for index, item in enumerate(self.THINKING_GRAPH_PARADIGM, start=1)
+            f"{index}. {item}"
+            for index, item in enumerate(self._thinking_graph_paradigm(normalized_language), start=1)
         )
 
         graph_payload = {
@@ -551,19 +645,50 @@ class LLMService:
         }
 
         graph_json = json.dumps(graph_payload, ensure_ascii=False)
+        if normalized_language == "en":
+            return (
+                "Audit the thinking graph according to the paradigm below.\n"
+                'If valid, return JSON: {"result":"OK"}.\n'
+                'If invalid, return JSON: {"result":"CONFLICT","conflicts":[...]}.\n'
+                "\n"
+                f"Paradigm:\n{paradigm_text}\n\n"
+                f"Thinking graph JSON:\n{graph_json}\n"
+            )
+
         return (
-            '请按下列范式审核思考图。\n'
-            '若满足范式，返回 JSON: {"result":"OK"}\n'
-            '若不满足，返回 JSON: {"result":"CONFLICT","conflicts":[...]}。\n'
-            '\n'
-            f'范式:\n{paradigm_text}\n\n'
-            f'思考图JSON:\n{graph_json}\n'
+            "\u8bf7\u6309\u4e0b\u5217\u8303\u5f0f\u5ba1\u6838\u601d\u8003\u56fe\u3002\n"
+            '\u82e5\u6ee1\u8db3\u8303\u5f0f\uff0c\u8fd4\u56de JSON: {"result":"OK"}\n'
+            '\u82e5\u4e0d\u6ee1\u8db3\uff0c\u8fd4\u56de JSON: {"result":"CONFLICT","conflicts":[...]}。\n'
+            "\n"
+            f"\u8303\u5f0f:\n{paradigm_text}\n\n"
+            f"\u601d\u8003\u56feJSON:\n{graph_json}\n"
         )
 
-    def _rule_based_conflicts(self, snapshot: GraphSnapshot) -> list[LLMGraphConflict]:
+    def _rule_based_conflicts(
+        self,
+        snapshot: GraphSnapshot,
+        *,
+        language: str = "zh",
+    ) -> list[LLMGraphConflict]:
+        normalized_language = self._normalize_language(language)
         conflicts: list[LLMGraphConflict] = []
         node_ids = {node.id for node in snapshot.nodes}
         connection_types = ConnectionType.values()
+
+        if normalized_language == "en":
+            node_empty_reason = "Node content is empty."
+            self_loop_reason = "Connection is a self-loop (source_id == target_id)."
+            invalid_node_ref_reason = "Connection references a non-existing node id."
+            invalid_conn_type_prefix = "Invalid connection type"
+            contradictory_reason_template = (
+                "Both supports and opposes exist for the same directed pair: {source} -> {target}"
+            )
+        else:
+            node_empty_reason = "\u8282\u70b9 content \u4e3a\u7a7a\u3002"
+            self_loop_reason = "\u8fde\u63a5\u5b58\u5728\u81ea\u73af(source_id == target_id)\u3002"
+            invalid_node_ref_reason = "\u8fde\u63a5\u5f15\u7528\u4e86\u4e0d\u5b58\u5728\u7684\u8282\u70b9\u3002"
+            invalid_conn_type_prefix = "\u8fde\u63a5\u7c7b\u578b\u65e0\u6548"
+            contradictory_reason_template = "\u540c\u4e00\u65b9\u5411\u8282\u70b9\u540c\u65f6\u5b58\u5728 supports \u4e0e opposes \u5173\u7cfb: {source} -> {target}"
 
         for node in snapshot.nodes:
             if not node.content.strip():
@@ -571,7 +696,7 @@ class LLMService:
                     LLMGraphConflict(
                         entity_type="node",
                         entity_id=node.id,
-                        reason="节点 content 为空。",
+                        reason=node_empty_reason,
                     )
                 )
 
@@ -584,7 +709,7 @@ class LLMService:
                     LLMGraphConflict(
                         entity_type="connection",
                         entity_id=conn.id,
-                        reason="连接存在自环(source_id == target_id)。",
+                        reason=self_loop_reason,
                     )
                 )
 
@@ -593,7 +718,7 @@ class LLMService:
                     LLMGraphConflict(
                         entity_type="connection",
                         entity_id=conn.id,
-                        reason="连接引用了不存在的节点。",
+                        reason=invalid_node_ref_reason,
                     )
                 )
 
@@ -602,7 +727,7 @@ class LLMService:
                     LLMGraphConflict(
                         entity_type="connection",
                         entity_id=conn.id,
-                        reason=f"连接类型无效: {conn.conn_type}",
+                        reason=f"{invalid_conn_type_prefix}: {conn.conn_type}",
                     )
                 )
 
@@ -621,16 +746,22 @@ class LLMService:
                         LLMGraphConflict(
                             entity_type="connection",
                             entity_id=conn_id,
-                            reason=(
-                                "同一方向节点同时存在 supports 与 opposes 关系: "
-                                f"{source_id} -> {target_id}"
+                            reason=contradictory_reason_template.format(
+                                source=source_id,
+                                target=target_id,
                             ),
                         )
                     )
 
-        return self._merge_conflicts(conflicts)
+        return self._merge_conflicts(conflicts, language=normalized_language)
 
-    def _parse_review_response(self, raw_response: str) -> list[LLMGraphConflict]:
+    def _parse_review_response(
+        self,
+        raw_response: str,
+        *,
+        language: str = "zh",
+    ) -> list[LLMGraphConflict]:
+        normalized_language = self._normalize_language(language)
         payload = self._extract_json_payload(raw_response)
         if payload is None:
             return self._heuristic_conflicts(raw_response)
@@ -641,13 +772,14 @@ class LLMService:
 
         conflicts_raw = payload.get("conflicts")
         conflicts: list[LLMGraphConflict] = []
+        default_reason = "No reason provided." if normalized_language == "en" else "\u672a\u63d0\u4f9b\u539f\u56e0\u3002"
 
         if isinstance(conflicts_raw, list):
             for item in conflicts_raw:
                 if isinstance(item, dict):
                     entity_type = str(item.get("entity_type", "global")).strip() or "global"
                     entity_id = str(item.get("entity_id", "global")).strip() or "global"
-                    reason = str(item.get("reason", "未提供原因")).strip() or "未提供原因"
+                    reason = str(item.get("reason", default_reason)).strip() or default_reason
                     conflicts.append(
                         LLMGraphConflict(
                             entity_type=entity_type,
@@ -667,14 +799,19 @@ class LLMService:
                         )
 
         if not conflicts and result and result != "OK":
+            fallback_reason = (
+                "LLM marked CONFLICT but did not return a structured conflicts list."
+                if normalized_language == "en"
+                else "LLM \u6807\u8bb0\u4e86\u51b2\u7a81\uff0c\u4f46\u672a\u8fd4\u56de\u7ed3\u6784\u5316 conflicts \u5217\u8868\u3002"
+            )
             conflicts.append(
                 LLMGraphConflict(
                     entity_type="global",
                     entity_id="global",
-                    reason="LLM 标记了冲突，但未返回结构化 conflicts 列表。",
+                    reason=fallback_reason,
                 )
             )
-        return self._merge_conflicts(conflicts)
+        return self._merge_conflicts(conflicts, language=normalized_language)
 
     @staticmethod
     def _extract_json_payload(raw_response: str) -> dict[str, Any] | None:
@@ -724,7 +861,14 @@ class LLMService:
         return []
 
     @staticmethod
-    def _merge_conflicts(conflicts: list[LLMGraphConflict]) -> list[LLMGraphConflict]:
+    def _merge_conflicts(
+        conflicts: list[LLMGraphConflict],
+        *,
+        language: str = "zh",
+    ) -> list[LLMGraphConflict]:
+        normalized_language = "en" if (language or "").strip().lower() == "en" else "zh"
+        default_reason = "No reason provided." if normalized_language == "en" else "\u672a\u63d0\u4f9b\u539f\u56e0\u3002"
+
         merged: list[LLMGraphConflict] = []
         seen: set[tuple[str, str, str]] = set()
 
@@ -741,7 +885,7 @@ class LLMService:
                 LLMGraphConflict(
                     entity_type=key[0],
                     entity_id=key[1],
-                    reason=key[2] or "未提供原因",
+                    reason=key[2] or default_reason,
                 )
             )
 

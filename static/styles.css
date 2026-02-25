@@ -47,11 +47,18 @@ body {
     z-index: 5;
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
+    gap: 16px;
     padding: 18px 28px;
     background: rgba(247, 242, 232, 0.9);
     backdrop-filter: blur(4px);
     border-bottom: 1px solid var(--line);
+}
+
+.topbar-left {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
 }
 
 .eyebrow {
@@ -72,6 +79,10 @@ h2 {
 h1 {
     margin-top: 4px;
     font-size: 28px;
+}
+
+#refresh-all {
+    align-self: center;
 }
 
 h2 {
@@ -334,6 +345,12 @@ textarea {
 @media (max-width: 720px) {
     .topbar {
         padding: 14px;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    #refresh-all {
+        align-self: flex-start;
     }
 
     h1 {
@@ -351,20 +368,41 @@ textarea {
 
 /* 语言切换器样式 */
 .language-switcher {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    margin-left: 1rem;
+    gap: 8px;
+    width: fit-content;
+    background: rgba(47, 156, 167, 0.12);
+    border: 1px solid rgba(47, 156, 167, 0.3);
+    border-radius: 999px;
+    padding: 4px 8px 4px 12px;
+}
+
+.language-label {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: "Space Grotesk", sans-serif;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
 }
 
 .language-switcher select {
-    background-color: rgba(255, 255, 255, 0.12);
-    border: 1px solid rgba(255, 255, 255, 0.24);
-    border-radius: 4px;
-    padding: 0.4rem 0.8rem;
-    color: white;
+    width: auto;
+    min-width: 118px;
+    background-color: #fff;
+    border: 1px solid rgba(31, 44, 52, 0.14);
+    border-radius: 999px;
+    padding: 6px 28px 6px 10px;
+    color: var(--ink);
+    font-size: 12px;
     cursor: pointer;
 }
 
 .language-switcher select:hover {
-    background-color: rgba(255, 255, 255, 0.24);
+    border-color: var(--accent);
+}
+
+.language-switcher select:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(21, 111, 120, 0.22);
 }

@@ -13,87 +13,94 @@
 <body>
     <div class="backdrop" aria-hidden="true"></div>
     <header class="topbar fade-in">
-        <div>
+        <div class="topbar-left">
             <p class="eyebrow" data-i18n="header.title">Thinking Graph</p>
-            <h1 data-i18n="header.subtitle">观点节点关系图</h1>
+            <h1 data-i18n="header.subtitle">Opinion Node Relationship Map</h1>
+            <div class="language-switcher" role="group">
+                <span class="language-label" data-i18n="language.label">Interface Language</span>
+                <select id="language-selector" data-i18n-aria-label="language.ariaLabel">
+                    <option value="zh" data-i18n="language.options.zh">Simplified Chinese</option>
+                    <option value="en" data-i18n="language.options.en">English</option>
+                </select>
+            </div>
         </div>
-        <button id="refresh-all" class="btn btn-secondary" data-i18n="header.refresh">刷新</button>
+        <button id="refresh-all" class="btn btn-secondary" data-i18n="header.refresh">Refresh</button>
     </header>
 
     <main class="layout">
         <section class="panel fade-in delay-1">
-            <h2 data-i18n="nodePanel.title">新增观点节点</h2>
+            <h2 data-i18n="nodePanel.title">Add Opinion Node</h2>
             <form id="node-form" class="stacked-form">
                 <label>
-                    <span data-i18n="nodePanel.contentLabel">观点内容</span>
-                    <textarea id="node-content" required data-i18n-placeholder="nodePanel.contentPlaceholder" placeholder="例如：远程办公可以提升深度工作效率"></textarea>
+                    <span data-i18n="nodePanel.contentLabel">Opinion Content</span>
+                    <textarea id="node-content" required data-i18n-placeholder="nodePanel.contentPlaceholder" placeholder="For example: Remote work can improve deep work efficiency"></textarea>
                 </label>
                 <label>
-                    <span data-i18n="nodePanel.summaryLabel">简短摘要</span>
-                    <input id="node-summary" type="text" data-i18n-placeholder="nodePanel.summaryPlaceholder" placeholder="例如：远程办公提升效率">
+                    <span data-i18n="nodePanel.summaryLabel">Brief Summary</span>
+                    <input id="node-summary" type="text" data-i18n-placeholder="nodePanel.summaryPlaceholder" placeholder="For example: Remote work improves efficiency">
                 </label>
                 <div class="dual-field-row">
                     <label>
-                        <span data-i18n="nodePanel.confidenceLabel">置信度 (0~1)</span>
+                        <span data-i18n="nodePanel.confidenceLabel">Confidence (0~1)</span>
                         <input id="node-confidence" type="number" min="0" max="1" step="0.1" value="1">
                     </label>
                     <label>
-                        <span data-i18n="nodePanel.colorLabel">节点颜色</span>
+                        <span data-i18n="nodePanel.colorLabel">Node Color</span>
                         <input id="node-color" type="color" value="#157f83">
                     </label>
                 </div>
-                <button type="submit" class="btn" data-i18n="nodePanel.createBtn">创建节点</button>
-                <p id="node-form-mode" data-i18n="nodePanel.updateHint">点击画布空白处可创建节点；选中节点后，提交表单会更新该节点属性。</p>
+                <button type="submit" class="btn" data-i18n="nodePanel.createBtn">Create Node</button>
+                <p id="node-form-mode" data-i18n="nodePanel.updateHint">Click blank canvas to create a node; after selecting a node, submitting the form updates this node.</p>
             </form>
 
-            <h2 data-i18n="connectionPanel.title">创建连接</h2>
+            <h2 data-i18n="connectionPanel.title">Create Connection</h2>
             <form id="connection-form" class="stacked-form">
                 <label>
-                    <span data-i18n="connectionPanel.sourceLabel">起点观点</span>
+                    <span data-i18n="connectionPanel.sourceLabel">Source Opinion</span>
                     <select id="source-node" required></select>
                 </label>
                 <label>
-                    <span data-i18n="connectionPanel.targetLabel">终点观点</span>
+                    <span data-i18n="connectionPanel.targetLabel">Target Opinion</span>
                     <select id="target-node" required></select>
                 </label>
                 <label>
-                    <span data-i18n="connectionPanel.typeLabel">关系类型</span>
+                    <span data-i18n="connectionPanel.typeLabel">Relationship Type</span>
                     <select id="conn-type">
-                        <option value="supports" data-i18n="connectionPanel.types.supports">supports</option>
-                        <option value="opposes" data-i18n="connectionPanel.types.opposes">opposes</option>
-                        <option value="relates" data-i18n="connectionPanel.types.relates">relates</option>
-                        <option value="leads_to" data-i18n="connectionPanel.types.leads_to">leads_to</option>
-                        <option value="derives_from" data-i18n="connectionPanel.types.derives_from">derives_from</option>
+                        <option value="supports" data-i18n="connectionPanel.types.supports">Supports</option>
+                        <option value="opposes" data-i18n="connectionPanel.types.opposes">Opposes</option>
+                        <option value="relates" data-i18n="connectionPanel.types.relates">Relates</option>
+                        <option value="leads_to" data-i18n="connectionPanel.types.leads_to">Leads To</option>
+                        <option value="derives_from" data-i18n="connectionPanel.types.derives_from">Derives From</option>
                     </select>
                 </label>
                 <label>
-                    <span data-i18n="connectionPanel.descriptionLabel">关系描述</span>
-                    <input id="conn-description" type="text" data-i18n-placeholder="connectionPanel.descriptionPlaceholder" placeholder="例如：A 作为 B 的前提条件">
+                    <span data-i18n="connectionPanel.descriptionLabel">Relationship Description</span>
+                    <input id="conn-description" type="text" data-i18n-placeholder="connectionPanel.descriptionPlaceholder" placeholder="For example: A serves as a prerequisite for B">
                 </label>
-                <button type="submit" class="btn" data-i18n="connectionPanel.createBtn">创建连接</button>
+                <button type="submit" class="btn" data-i18n="connectionPanel.createBtn">Create Connection</button>
             </form>
 
             <div class="stack-inline">
-                <button id="delete-node" class="btn btn-danger" data-i18n="actionButtons.deleteNode">删除选中节点</button>
-                <button id="delete-connection" class="btn btn-danger" data-i18n="actionButtons.deleteConnection">删除选中连接</button>
-                <button id="update-node-color" class="btn btn-secondary" data-i18n="actionButtons.updateColor">更新选中节点颜色</button>
-                <button id="tidy-graph" class="btn btn-secondary" data-i18n="actionButtons.tidyGraph">一键整理布局</button>
+                <button id="delete-node" class="btn btn-danger" data-i18n="actionButtons.deleteNode">Delete Selected Node</button>
+                <button id="delete-connection" class="btn btn-danger" data-i18n="actionButtons.deleteConnection">Delete Selected Connection</button>
+                <button id="update-node-color" class="btn btn-secondary" data-i18n="actionButtons.updateColor">Update Selected Node Color</button>
+                <button id="tidy-graph" class="btn btn-secondary" data-i18n="actionButtons.tidyGraph">Tidy Layout</button>
             </div>
 
-            <h2 data-i18n="saveLoadPanel.title">保存/加载思考图</h2>
+            <h2 data-i18n="saveLoadPanel.title">Save/Load Thinking Graph</h2>
             <form id="graph-save-form" class="stacked-form">
                 <label>
-                    <span data-i18n="saveLoadPanel.nameLabel">快照名称</span>
-                    <input id="save-graph-name" type="text" data-i18n-placeholder="saveLoadPanel.namePlaceholder" placeholder="例如：讨论版本-v1" required>
+                    <span data-i18n="saveLoadPanel.nameLabel">Snapshot Name</span>
+                    <input id="save-graph-name" type="text" data-i18n-placeholder="saveLoadPanel.namePlaceholder" placeholder="For example: Discussion Version-v1" required>
                 </label>
-                <button type="submit" class="btn btn-secondary" data-i18n="saveLoadPanel.saveBtn">保存当前图</button>
+                <button type="submit" class="btn btn-secondary" data-i18n="saveLoadPanel.saveBtn">Save Current Graph</button>
             </form>
             <div class="stack-inline">
                 <select id="saved-graphs"></select>
-                <button id="load-graph" type="button" class="btn btn-secondary" data-i18n="saveLoadPanel.loadBtn">加载选中图</button>
-                <button id="refresh-saved" type="button" class="btn btn-secondary" data-i18n="saveLoadPanel.refreshListBtn">刷新列表</button>
-                <button id="delete-saved-graph" type="button" class="btn btn-danger" data-i18n="saveLoadPanel.deleteBtn">删除已保存图</button>
-                <button id="clear-graph" type="button" class="btn btn-danger" data-i18n="saveLoadPanel.clearBtn">清空当前图</button>
+                <button id="load-graph" type="button" class="btn btn-secondary" data-i18n="saveLoadPanel.loadBtn">Load Selected Graph</button>
+                <button id="refresh-saved" type="button" class="btn btn-secondary" data-i18n="saveLoadPanel.refreshListBtn">Refresh List</button>
+                <button id="delete-saved-graph" type="button" class="btn btn-danger" data-i18n="saveLoadPanel.deleteBtn">Delete Saved Graph</button>
+                <button id="clear-graph" type="button" class="btn btn-danger" data-i18n="saveLoadPanel.clearBtn">Clear Current Graph</button>
             </div>
             <div class="stack-inline">
                 <button id="export-graph" type="button" class="btn btn-secondary" data-i18n="saveLoadPanel.exportJson">Export JSON</button>
@@ -104,50 +111,49 @@
 
         <section class="panel canvas-panel fade-in delay-2">
             <div class="canvas-head">
-                <h2 data-i18n="nodePanel.blankCanvasHint">关系图</h2>
-                <p id="selection-tip">点击空白创建节点；点击节点可编辑属性</p>
+                <h2 data-i18n="canvasPanel.title">Graph Canvas</h2>
+                <p id="selection-tip" data-i18n="canvasPanel.selectionTip">Click blank space to create a node. Click a node to edit its attributes.</p>
             </div>
             <div id="network"></div>
         </section>
 
         <section class="panel fade-in delay-3">
-            <h2 data-i18n="auditPanel.title">审计状态</h2>
+            <h2 data-i18n="auditPanel.title">Audit Status</h2>
             <div class="stack-inline">
-                <button id="verify-audit" class="btn btn-secondary" data-i18n="auditPanel.verifyBtn">审计完整性检查</button>
-                <span id="audit-status" class="badge">未检查</span>
+                <button id="verify-audit" class="btn btn-secondary" data-i18n="auditPanel.verifyBtn">Audit Integrity Check</button>
+                <span id="audit-status" class="badge" data-i18n="auditPanel.status.unchecked">Unchecked</span>
             </div>
             <ul id="audit-issues" class="issues"></ul>
 
-            <h2 data-i18n="auditPanel.historyTitle">最近审计记录</h2>
+            <h2 data-i18n="auditPanel.historyTitle">Recent Audit Records</h2>
             <ul id="audit-list" class="audit-list"></ul>
 
-            <h2 data-i18n="auditPanel.llmTitle">LLM 入口</h2>
+            <h2 data-i18n="auditPanel.llmTitle">LLM Interface</h2>
             <div class="stack-inline">
-                <button id="llm-review-graph" type="button" class="btn btn-secondary" data-i18n="auditPanel.reviewBtn">一键审核思考图有效性</button>
+                <button id="llm-review-graph" type="button" class="btn btn-secondary" data-i18n="auditPanel.reviewBtn">Review Graph Validity</button>
             </div>
-            <pre id="llm-review-response" class="llm-output" data-i18n="auditPanel.waitingReview">等待审核...</pre>
+            <pre id="llm-review-response" class="llm-output" data-i18n="auditPanel.waitingReview">Waiting for review...</pre>
 
             <form id="llm-generate-form" class="stacked-form">
                 <label>
                     <span data-i18n="auditPanel.topicLabel">Topic</span>
-                    <textarea id="llm-generate-topic" required data-i18n-placeholder="auditPanel.generatePlaceholder" placeholder="输入主题，让 LLM 生成思考图并覆盖当前图"></textarea>
+                    <textarea id="llm-generate-topic" required data-i18n-placeholder="auditPanel.generatePlaceholder" placeholder="Enter a topic for LLM to generate a thinking graph and overwrite the current one"></textarea>
                 </label>
-                <button type="submit" class="btn btn-secondary" data-i18n="auditPanel.generateBtn">生成并覆盖当前图</button>
+                <button type="submit" class="btn btn-secondary" data-i18n="auditPanel.generateBtn">Generate and Overwrite Current Graph</button>
             </form>
-            <pre id="llm-generate-response" class="llm-output" data-i18n="auditPanel.waitingGenerate">等待生成...</pre>
+            <pre id="llm-generate-response" class="llm-output" data-i18n="auditPanel.waitingGenerate">Waiting for generation...</pre>
 
             <form id="llm-form" class="stacked-form">
                 <label>
                     <span data-i18n="auditPanel.promptLabel">Prompt</span>
-                    <textarea id="llm-prompt" required data-i18n-placeholder="auditPanel.promptPlaceholder" placeholder="让 LLM 帮我拆分该主题的关键观点与冲突关系"></textarea>
+                    <textarea id="llm-prompt" required data-i18n-placeholder="auditPanel.promptPlaceholder" placeholder="Ask LLM to break down key opinions and conflicting relationships in this topic"></textarea>
                 </label>
-                <button type="submit" class="btn">调用 LLM</button>
+                <button type="submit" class="btn" data-i18n="auditPanel.callBtn">Call LLM</button>
             </form>
-            <pre id="llm-response" class="llm-output" data-i18n="auditPanel.waitingCall">等待调用...</pre>
+            <pre id="llm-response" class="llm-output" data-i18n="auditPanel.waitingCall">Waiting for call...</pre>
         </section>
     </main>
 
-    <!-- 引入国际化脚本 -->
     <script src="{{ url_for('static', filename='i18n.js') }}"></script>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>

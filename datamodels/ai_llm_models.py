@@ -14,6 +14,7 @@ class LLMChatRequest:
     system_prompt: str | None = None
     temperature: float = 0.3
     max_tokens: int = 800
+    language: str = "zh"
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, object]) -> "LLMChatRequest":
@@ -52,11 +53,20 @@ class LLMChatRequest:
         elif not isinstance(max_tokens, int):
             max_tokens = 800
 
+        language_raw = payload.get("language", "zh")
+        if isinstance(language_raw, str):
+            language = language_raw.strip().lower()
+        else:
+            language = str(language_raw).strip().lower()
+        if language not in {"zh", "en"}:
+            language = "zh"
+
         return cls(
             prompt=prompt,
             system_prompt=system_prompt,
             temperature=float(temperature),
             max_tokens=int(max_tokens),
+            language=language,
         )
 
 
