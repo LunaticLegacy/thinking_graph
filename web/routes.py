@@ -512,6 +512,17 @@ def list_audits():
     return jsonify(to_json_ready(AuditsResponse(audits=audits)))
 
 
+@web_bp.get("/api/audits/export")
+def export_audits():
+    query = AuditQuery(
+        entity_type=request.args.get("entity_type"),
+        entity_id=request.args.get("entity_id"),
+        limit=request.args.get("limit", default=2000, type=int),
+    )
+    result = graph_service().export_audits(query)
+    return jsonify(to_json_ready(result))
+
+
 @web_bp.get("/api/audits/verify")
 def verify_audit_integrity():
     return jsonify(to_json_ready(graph_service().verify_audit_integrity()))

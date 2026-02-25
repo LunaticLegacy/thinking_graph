@@ -103,6 +103,7 @@
   "auditPanel": {
     "title": "Audit Status",
     "verifyBtn": "Audit Integrity Check",
+    "exportBtn": "Export Audit Report",
     "status": {
       "unchecked": "Unchecked",
       "valid": "Valid",
@@ -165,6 +166,7 @@
     "invalidJsonFile": "Invalid JSON file.",
     "graphImported": "Imported graph: %nodes% nodes / %connections% connections",
     "graphExported": "Exported graph: %nodes% nodes / %connections% connections",
+    "auditReportExported": "Exported audit report: %count% records",
     "savedGraphListRefreshed": "Saved graph list refreshed.",
     "llmGeneratedReplaced": "LLM generated and replaced the current graph."
   },

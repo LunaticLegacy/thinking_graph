@@ -305,6 +305,18 @@ class AuditIntegrityReport:
 
 
 @dataclass(slots=True)
+class AuditExportResult:
+    format: str
+    exported_at: str
+    record_count: int
+    entity_counts: dict[str, int]
+    action_counts: dict[str, int]
+    actor_counts: dict[str, int]
+    suggested_file_name: str
+    audits: list[AuditRecord]
+
+
+@dataclass(slots=True)
 class SavedGraphSummary:
     name: str
     node_count: int

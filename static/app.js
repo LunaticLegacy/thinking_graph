@@ -166,6 +166,24 @@ async function api(url, options = {}) {
     return payload;
 }
 
+function downloadJsonFile(payload, fallbackFileName) {
+    const payloadText = JSON.stringify(payload, null, 2);
+    const blob = new Blob([payloadText], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+
+    const preferredFileName = payload && typeof payload.suggested_file_name === "string"
+        ? payload.suggested_file_name.trim()
+        : "";
+    link.download = preferredFileName || fallbackFileName;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+}
+
 function setNetworkKeyboardEnabled(enabled) {
     if (networkKeyboardEnabled === enabled) {
         return;
@@ -1133,16 +1151,7 @@ if (exportGraphButton) {
     exportGraphButton.addEventListener("click", async () => {
         try {
             const result = await api("/api/graphs/export");
-            const payloadText = JSON.stringify(result, null, 2);
-            const blob = new Blob([payloadText], { type: "application/json;charset=utf-8" });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = result.suggested_file_name || "thinking-graph-export.json";
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            URL.revokeObjectURL(url);
+            downloadJsonFile(result, "thinking-graph-export.json");
 
             const msg = i18n
                 ? i18n.t("messages.graphExported", {
@@ -1150,6 +1159,23 @@ if (exportGraphButton) {
                     connections: result.connection_count || 0,
                 })
                 : `Exported graph: ${result.node_count || 0} nodes / ${result.connection_count || 0} connections`;
+            showMessage(msg);
+        } catch (error) {
+            showMessage(error.message, true);
+        }
+    });
+}
+
+const exportAuditsButton = document.getElementById("export-audits");
+if (exportAuditsButton) {
+    exportAuditsButton.addEventListener("click", async () => {
+        try {
+            const result = await api("/api/audits/export?limit=2000");
+            downloadJsonFile(result, "thinking-graph-audit-report.json");
+
+            const msg = i18n
+                ? i18n.t("messages.auditReportExported", { count: result.record_count || 0 })
+                : `Exported audit report: ${result.record_count || 0} records`;
             showMessage(msg);
         } catch (error) {
             showMessage(error.message, true);

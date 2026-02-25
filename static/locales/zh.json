@@ -135,7 +135,8 @@
     "cancelled": "已取消。",
     "generating": "生成中...",
     "llmUnavailable": "LLM 后端不可用。",
-    "generatedResult": "已生成并替换图谱：%nodes% 个节点 / %connections% 条连接"
+    "generatedResult": "已生成并替换图谱：%nodes% 个节点 / %connections% 条连接",
+    "exportBtn": "导出审计报告"
   },
   "messages": {
     "nodeRequired": "节点内容为必填项。",
@@ -166,7 +167,8 @@
     "graphImported": "已导入图谱：%nodes% 个节点 / %connections% 条连接",
     "graphExported": "已导出图谱：%nodes% 个节点 / %connections% 条连接",
     "savedGraphListRefreshed": "已刷新已保存图谱列表。",
-    "llmGeneratedReplaced": "LLM 已生成并替换当前图谱。"
+    "llmGeneratedReplaced": "LLM 已生成并替换当前图谱。",
+    "auditReportExported": "已导出审计报告：%count% 条记录"
   },
   "errors": {
     "requestFailed": "请求失败，状态码 %status%",

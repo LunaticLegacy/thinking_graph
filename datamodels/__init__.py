@@ -9,6 +9,7 @@ from .ai_llm_models import (
 )
 from .graph_models import (
     AuditAction,
+    AuditExportResult,
     AuditIntegrityReport,
     AuditLog,
     AuditQuery,
@@ -54,6 +55,7 @@ from .graph_models import (
 
 __all__ = [
     "AuditAction",
+    "AuditExportResult",
     "AuditIntegrityReport",
     "AuditLog",
     "AuditQuery",

@@ -11,6 +11,7 @@ from backend.repository import SQLiteRepository
 from core.visualization import build_vis_payload
 from datamodels.graph_models import (
     AuditAction,
+    AuditExportResult,
     AuditIntegrityReport,
     AuditLog,
     AuditQuery,
@@ -1034,6 +1035,42 @@ class GraphService:
             )
             for row in rows
         ]
+
+    def export_audits(self, query: AuditQuery) -> AuditExportResult:
+        normalized_query = AuditQuery(
+            entity_type=(query.entity_type or None),
+            entity_id=(query.entity_id or None),
+            limit=min(max(int(query.limit), 1), 5000),
+        )
+        audits = self.list_audits(normalized_query)
+
+        entity_counts: dict[str, int] = {}
+        action_counts: dict[str, int] = {}
+        actor_counts: dict[str, int] = {}
+
+        for record in audits:
+            entity_counts[record.entity_type] = entity_counts.get(record.entity_type, 0) + 1
+            action_counts[record.action] = action_counts.get(record.action, 0) + 1
+            actor_counts[record.actor] = actor_counts.get(record.actor, 0) + 1
+
+        exported_at = utc_now()
+        safe_stamp = (
+            exported_at.replace(":", "-")
+            .replace(".", "-")
+            .replace("+", "p")
+        )
+        file_name = f"thinking-graph-audit-report-{safe_stamp}.json"
+
+        return AuditExportResult(
+            format="thinking-graph-audit-report-v1",
+            exported_at=exported_at,
+            record_count=len(audits),
+            entity_counts=entity_counts,
+            action_counts=action_counts,
+            actor_counts=actor_counts,
+            suggested_file_name=file_name,
+            audits=audits,
+        )
 
     def verify_audit_integrity(self) -> AuditIntegrityReport:
         issues: list[str] = []
