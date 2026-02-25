@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
+from pathlib import Path
+from typing import Any
+import os
 import re
 from typing import Mapping
 
 from flask import Blueprint, current_app, jsonify, render_template, request
 
+from backend.services import LLMService
+from config import LLMConfig
+from config.llm_config import LLMAPIProfile, LLMLocalRuntimeProfile
 from datamodels.ai_llm_models import LLMChatRequest
 from datamodels.graph_models import (
     AuditQuery,
@@ -33,6 +39,35 @@ from datamodels.graph_models import (
 web_bp = Blueprint("web", __name__)
 
 DEFAULT_NODE_COLOR = "#157f83"
+SUPPORTED_LLM_BACKENDS: set[str] = {"remote_api", "local_api", "onnxruntime", "openvino"}
+DEFAULT_LLM_SETTINGS: dict[str, Any] = {
+    "backend": "remote_api",
+    "remote_api": {
+        "api_key": "",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+    },
+    "local_api": {
+        "api_key": "",
+        "base_url": "http://127.0.0.1:11434/v1",
+        "model": "qwen2.5:7b",
+    },
+    "local_runtime": {
+        "model": "qwen2.5-7b-instruct",
+        "model_dir": "models",
+        "npu_device": "NPU",
+        "require_npu": True,
+        "onnx_provider": "",
+    },
+}
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover
+    tomllib = None  # type: ignore[assignment]
+
+import toml
+
 LLM_NODE_COLOR_PALETTE: tuple[str, ...] = (
     DEFAULT_NODE_COLOR,
     "#2d936c",
@@ -63,6 +98,210 @@ def pick_llm_node_color(index: int, provided_color: object, used_colors: set[str
         if candidate not in used_colors:
             return candidate
     return LLM_NODE_COLOR_PALETTE[index % palette_size]
+
+
+def runtime_config():
+    return current_app.extensions.get("runtime_config")
+
+
+def app_config_path() -> Path:
+    config_name = os.getenv("APP_CONFIG_FILE", "app_config.toml").strip() or "app_config.toml"
+    config_path = Path(config_name)
+    if config_path.is_absolute():
+        return config_path
+
+    runtime = runtime_config()
+    root = (
+        Path(runtime.paths.project_root)
+        if runtime is not None and hasattr(runtime, "paths")
+        else Path(__file__).resolve().parent.parent
+    )
+    return root / config_path
+
+
+def _as_mapping(value: object) -> Mapping[str, object]:
+    if isinstance(value, Mapping):
+        return value
+    return {}
+
+
+def _as_str(value: object, default: str = "") -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if value is None:
+        return default
+    return str(value).strip()
+
+
+def _as_bool(value: object, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
+def _normalize_llm_settings(raw: Mapping[str, object] | None) -> dict[str, Any]:
+    section = raw or {}
+    remote_api_raw = _as_mapping(section.get("remote_api"))
+    local_api_raw = _as_mapping(section.get("local_api"))
+    local_runtime_raw = _as_mapping(section.get("local_runtime"))
+
+    backend = _as_str(section.get("backend"), DEFAULT_LLM_SETTINGS["backend"]).lower()
+    if backend not in SUPPORTED_LLM_BACKENDS:
+        backend = str(DEFAULT_LLM_SETTINGS["backend"])
+
+    remote_defaults = _as_mapping(DEFAULT_LLM_SETTINGS["remote_api"])
+    local_defaults = _as_mapping(DEFAULT_LLM_SETTINGS["local_api"])
+    runtime_defaults = _as_mapping(DEFAULT_LLM_SETTINGS["local_runtime"])
+
+    normalized = {
+        "backend": backend,
+        "remote_api": {
+            "api_key": _as_str(
+                remote_api_raw.get("api_key"),
+                _as_str(remote_defaults.get("api_key"), ""),
+            ),
+            "base_url": _as_str(
+                remote_api_raw.get("base_url"),
+                _as_str(remote_defaults.get("base_url"), ""),
+            ),
+            "model": _as_str(
+                remote_api_raw.get("model"),
+                _as_str(remote_defaults.get("model"), ""),
+            ),
+        },
+        "local_api": {
+            "api_key": _as_str(
+                local_api_raw.get("api_key"),
+                _as_str(local_defaults.get("api_key"), ""),
+            ),
+            "base_url": _as_str(
+                local_api_raw.get("base_url"),
+                _as_str(local_defaults.get("base_url"), ""),
+            ),
+            "model": _as_str(
+                local_api_raw.get("model"),
+                _as_str(local_defaults.get("model"), ""),
+            ),
+        },
+        "local_runtime": {
+            "model": _as_str(
+                local_runtime_raw.get("model"),
+                _as_str(runtime_defaults.get("model"), ""),
+            ),
+            "model_dir": _as_str(
+                local_runtime_raw.get("model_dir"),
+                _as_str(runtime_defaults.get("model_dir"), ""),
+            ),
+            "npu_device": _as_str(
+                local_runtime_raw.get("npu_device"),
+                _as_str(runtime_defaults.get("npu_device"), ""),
+            ),
+            "require_npu": _as_bool(
+                local_runtime_raw.get("require_npu"),
+                _as_bool(runtime_defaults.get("require_npu"), True),
+            ),
+            "onnx_provider": _as_str(
+                local_runtime_raw.get("onnx_provider"),
+                _as_str(runtime_defaults.get("onnx_provider"), ""),
+            ),
+        },
+    }
+    return normalized
+
+
+def _resolve_path_to_project_root(value: str, project_root: Path) -> str:
+    raw = Path(value)
+    if raw.is_absolute():
+        return str(raw)
+    return str(project_root / raw)
+
+
+def _build_llm_config_from_settings(
+    llm_settings: Mapping[str, object],
+    *,
+    project_root: Path,
+) -> LLMConfig:
+    normalized = _normalize_llm_settings(llm_settings)
+
+    remote_settings = _as_mapping(normalized.get("remote_api"))
+    local_settings = _as_mapping(normalized.get("local_api"))
+    runtime_settings = _as_mapping(normalized.get("local_runtime"))
+
+    remote_api = LLMAPIProfile(
+        api_key=_as_str(remote_settings.get("api_key"), "") or None,
+        base_url=_as_str(remote_settings.get("base_url"), "https://api.openai.com/v1"),
+        model=_as_str(remote_settings.get("model"), "gpt-4o-mini"),
+    )
+    local_api = LLMAPIProfile(
+        api_key=_as_str(local_settings.get("api_key"), "") or None,
+        base_url=_as_str(local_settings.get("base_url"), "http://127.0.0.1:11434/v1"),
+        model=_as_str(local_settings.get("model"), "qwen2.5:7b"),
+    )
+    local_runtime = LLMLocalRuntimeProfile(
+        model=_as_str(runtime_settings.get("model"), "qwen2.5-7b-instruct"),
+        model_dir=_resolve_path_to_project_root(
+            _as_str(runtime_settings.get("model_dir"), "models"),
+            project_root,
+        ),
+        npu_device=_as_str(runtime_settings.get("npu_device"), "NPU"),
+        require_npu=_as_bool(runtime_settings.get("require_npu"), True),
+        onnx_provider=_as_str(runtime_settings.get("onnx_provider"), "") or None,
+    )
+
+    backend = _as_str(normalized.get("backend"), "remote_api").lower()
+    if backend not in SUPPORTED_LLM_BACKENDS:
+        backend = "remote_api"
+
+    selected_api = local_api if backend == "local_api" else remote_api
+    selected_model = local_runtime.model if backend in {"onnxruntime", "openvino"} else selected_api.model
+
+    return LLMConfig(
+        backend=backend,
+        remote_api=remote_api,
+        local_api=local_api,
+        local_runtime=local_runtime,
+        api_key=selected_api.api_key,
+        base_url=selected_api.base_url,
+        model=selected_model,
+        model_dir=local_runtime.model_dir,
+        npu_device=local_runtime.npu_device,
+        require_npu=local_runtime.require_npu,
+        onnx_provider=local_runtime.onnx_provider,
+    )
+
+
+def _load_app_config(config_path: Path) -> dict[str, Any]:
+    if not config_path.exists():
+        return {}
+
+    raw_text = config_path.read_text(encoding="utf-8-sig")
+    if not raw_text.strip():
+        return {}
+
+    if tomllib is not None:
+        parsed: Any = tomllib.loads(raw_text)
+    else:  # pragma: no cover
+        parsed = toml.loads(raw_text)
+
+    if not isinstance(parsed, dict):
+        raise ValueError(f"invalid config format: {config_path}")
+    return parsed
+
+
+def _write_app_config(config_path: Path, document: Mapping[str, Any]) -> None:
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    rendered = toml.dumps(dict(document))
+    if not rendered.endswith("\n"):
+        rendered += "\n"
+    config_path.write_text(rendered, encoding="utf-8")
 
 
 def graph_service():
@@ -107,6 +346,63 @@ def health_check():
 @web_bp.get("/api/graph")
 def get_graph():
     return jsonify(to_json_ready(graph_service().graph_snapshot()))
+
+
+@web_bp.get("/api/settings")
+def get_settings():
+    config_path = app_config_path()
+    try:
+        config_doc = _load_app_config(config_path)
+    except Exception as exc:
+        return jsonify(to_json_ready(ErrorResponse(error=f"failed to read app_config: {exc}"))), 500
+
+    llm_settings = _normalize_llm_settings(_as_mapping(config_doc.get("llm")))
+    return jsonify(
+        {
+            "config_path": str(config_path),
+            "llm": llm_settings,
+        }
+    )
+
+
+@web_bp.put("/api/settings")
+def update_settings():
+    incoming = payload_mapping()
+    llm_block = _as_mapping(incoming.get("llm")) if "llm" in incoming else incoming
+    llm_settings = _normalize_llm_settings(llm_block)
+
+    config_path = app_config_path()
+    try:
+        config_doc = _load_app_config(config_path)
+    except Exception as exc:
+        return jsonify(to_json_ready(ErrorResponse(error=f"failed to read app_config: {exc}"))), 500
+
+    config_doc["llm"] = llm_settings
+
+    try:
+        _write_app_config(config_path, config_doc)
+    except OSError as exc:
+        return jsonify(to_json_ready(ErrorResponse(error=f"failed to write app_config: {exc}"))), 500
+
+    runtime = runtime_config()
+    project_root = (
+        Path(runtime.paths.project_root)
+        if runtime is not None and hasattr(runtime, "paths")
+        else Path(__file__).resolve().parent.parent
+    )
+    applied_llm = _build_llm_config_from_settings(llm_settings, project_root=project_root)
+
+    if runtime is not None and hasattr(runtime, "llm"):
+        runtime.llm = applied_llm
+    current_app.extensions["llm_service"] = LLMService(applied_llm)
+
+    return jsonify(
+        {
+            "ok": True,
+            "config_path": str(config_path),
+            "llm": llm_settings,
+        }
+    )
 
 
 @web_bp.route("/api/nodes", methods=["GET", "POST"])

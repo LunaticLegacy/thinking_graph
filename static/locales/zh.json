@@ -66,6 +66,40 @@
     "importJson": "导入 JSON",
     "noGraphs": "暂无已保存图谱"
   },
+  "settingsPanel": {
+    "title": "设置（app_config）",
+    "backend": {
+      "legend": "LLM 后端",
+      "current": "当前后端",
+      "remote_api": "remote_api",
+      "local_api": "local_api",
+      "onnxruntime": "onnxruntime",
+      "openvino": "openvino"
+    },
+    "remoteApi": {
+      "legend": "Remote API",
+      "apiKey": "API Key",
+      "baseUrl": "Base URL",
+      "model": "模型"
+    },
+    "localApi": {
+      "legend": "Local API",
+      "apiKey": "API Key",
+      "baseUrl": "Base URL",
+      "model": "模型"
+    },
+    "localRuntime": {
+      "legend": "本地运行时",
+      "model": "模型",
+      "modelDir": "模型目录",
+      "npuDevice": "NPU 设备",
+      "onnxProvider": "ONNX 提供商",
+      "requireNpu": "需要 NPU"
+    },
+    "reloadButton": "重新读取",
+    "saveButton": "保存设置",
+    "waitingStatus": "等待读取 app_config..."
+  },
   "auditPanel": {
     "title": "审计状态",
     "verifyBtn": "审计完整性检查",

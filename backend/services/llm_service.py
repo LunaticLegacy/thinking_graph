@@ -269,7 +269,7 @@ class LLMService:
         graph_instruction = (
             "Please answer based on the current thinking graph below:\n"
             if language == "en"
-            else "\u8bf7\u7ed3\u5408\u4e0b\u9762\u7684\u5f53\u524d\u601d\u8003\u56fe\u4f5c\u7b54\uff1a\n"
+            else "请结合下面的当前思考图作答：\n"
         )
         merged_prompt = f"{payload.prompt.strip()}\n\n{graph_instruction}{graph_block}"
 
@@ -453,16 +453,16 @@ class LLMService:
             )
 
         return (
-            "\u8bf7\u56f4\u7ed5\u4e0b\u5217\u4e3b\u9898\u751f\u6210\u601d\u8003\u56fe\u3002\n"
-            f"\u4e3b\u9898: {topic}\n\n"
-            "\u8981\u6c42:\n"
-            f"1. \u8282\u70b9\u6570\u91cf 3 \u5230 {max_nodes} \u4e4b\u95f4\u3002\n"
-            "2. \u8282\u70b9\u8981\u7b80\u6d01\u3001\u53ef\u8ba8\u8bba\uff0ccontent \u4e0d\u80fd\u4e3a\u7a7a\u3002\n"
-            f"3. conn_type \u53ea\u5141\u8bb8 {connection_types}\u3002\n"
-            "4. \u8fde\u63a5\u5fc5\u987b\u662f\u6709\u5411\u8fb9\uff0c\u4e14\u7981\u6b62\u81ea\u73af\u3002\n"
-            "5. source_id \u548c target_id \u5fc5\u987b\u5f15\u7528\u5df2\u5b9a\u4e49\u8282\u70b9\u3002\n"
-            "6. \u5982\u6709\u5fc5\u8981\u53ef\u751f\u6210\u8f83\u5c11\u8fde\u63a5\uff0c\u4f46\u9700\u4fdd\u8bc1\u56fe\u7ed3\u6784\u6e05\u6670\u3002\n"
-            '7. \u53ea\u8f93\u51fa JSON \u5bf9\u8c61: {"nodes":[...],"connections":[...]}\n'
+            "请围绕下列主题生成思考图。\n"
+            f"主题: {topic}\n\n"
+            "要求:\n"
+            f"1. 节点数量 3 到 {max_nodes} 之间。\n"
+            "2. 节点要简洁、可辩论，content 不能为空。\n"
+            f"3. conn_type 只允许 {connection_types}。\n"
+            "4. 连接必须是有向边，且禁止自环。\n"
+            "5. source_id 和 target_id 必须引用已定义节点。\n"
+            "6. 如有必要可生成较少连接，但需保证图结构清晰。\n"
+            '7. 只输出 JSON 对象: {"nodes":[...],"connections":[...]}\n'
         )
 
     def _normalize_generated_graph_payload(
@@ -656,12 +656,12 @@ class LLMService:
             )
 
         return (
-            "\u8bf7\u6309\u4e0b\u5217\u8303\u5f0f\u5ba1\u6838\u601d\u8003\u56fe\u3002\n"
-            '\u82e5\u6ee1\u8db3\u8303\u5f0f\uff0c\u8fd4\u56de JSON: {"result":"OK"}\n'
-            '\u82e5\u4e0d\u6ee1\u8db3\uff0c\u8fd4\u56de JSON: {"result":"CONFLICT","conflicts":[...]}。\n'
+            "请按下列范式审核思考图。\n"
+            '若满足范式，返回 JSON: {"result":"OK"}\n'
+            '若不满足，返回 JSON: {"result":"CONFLICT","conflicts":[...]}。\n'
             "\n"
-            f"\u8303\u5f0f:\n{paradigm_text}\n\n"
-            f"\u601d\u8003\u56feJSON:\n{graph_json}\n"
+            f"范式:\n{paradigm_text}\n\n"
+            f"思考图JSON:\n{graph_json}\n"
         )
 
     def _rule_based_conflicts(
@@ -684,11 +684,11 @@ class LLMService:
                 "Both supports and opposes exist for the same directed pair: {source} -> {target}"
             )
         else:
-            node_empty_reason = "\u8282\u70b9 content \u4e3a\u7a7a\u3002"
-            self_loop_reason = "\u8fde\u63a5\u5b58\u5728\u81ea\u73af(source_id == target_id)\u3002"
-            invalid_node_ref_reason = "\u8fde\u63a5\u5f15\u7528\u4e86\u4e0d\u5b58\u5728\u7684\u8282\u70b9\u3002"
-            invalid_conn_type_prefix = "\u8fde\u63a5\u7c7b\u578b\u65e0\u6548"
-            contradictory_reason_template = "\u540c\u4e00\u65b9\u5411\u8282\u70b9\u540c\u65f6\u5b58\u5728 supports \u4e0e opposes \u5173\u7cfb: {source} -> {target}"
+            node_empty_reason = "节点 content 为空。"
+            self_loop_reason = "连接存在自环(source_id == target_id)。"
+            invalid_node_ref_reason = "连接引用了不存在的节点。"
+            invalid_conn_type_prefix = "连接类型无效"
+            contradictory_reason_template = "同一方向节点同时存在 supports 与 opposes 关系: {source} -> {target}"
 
         for node in snapshot.nodes:
             if not node.content.strip():
@@ -772,7 +772,7 @@ class LLMService:
 
         conflicts_raw = payload.get("conflicts")
         conflicts: list[LLMGraphConflict] = []
-        default_reason = "No reason provided." if normalized_language == "en" else "\u672a\u63d0\u4f9b\u539f\u56e0\u3002"
+        default_reason = "No reason provided." if normalized_language == "en" else "未提供原因。"
 
         if isinstance(conflicts_raw, list):
             for item in conflicts_raw:
@@ -867,7 +867,7 @@ class LLMService:
         language: str = "zh",
     ) -> list[LLMGraphConflict]:
         normalized_language = "en" if (language or "").strip().lower() == "en" else "zh"
-        default_reason = "No reason provided." if normalized_language == "en" else "\u672a\u63d0\u4f9b\u539f\u56e0\u3002"
+        default_reason = "No reason provided." if normalized_language == "en" else "未提供原因。"
 
         merged: list[LLMGraphConflict] = []
         seen: set[tuple[str, str, str]] = set()

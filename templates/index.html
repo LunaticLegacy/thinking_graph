@@ -50,7 +50,7 @@
                     </label>
                 </div>
                 <button type="submit" class="btn" data-i18n="nodePanel.createBtn">Create Node</button>
-                <p id="node-form-mode" data-i18n="nodePanel.updateHint">Click blank canvas to create a node; after selecting a node, submitting the form updates this node.</p>
+                <p id="node-form-mode">创建节点请使用此表单；选中节点后，提交表单会更新该节点属性。</p>
             </form>
 
             <h2 data-i18n="connectionPanel.title">Create Connection</h2>
@@ -109,13 +109,101 @@
             </div>
         </section>
 
-        <section class="panel canvas-panel fade-in delay-2">
-            <div class="canvas-head">
-                <h2 data-i18n="canvasPanel.title">Graph Canvas</h2>
-                <p id="selection-tip" data-i18n="canvasPanel.selectionTip">Click blank space to create a node. Click a node to edit its attributes.</p>
-            </div>
-            <div id="network"></div>
-        </section>
+        <div class="canvas-stack fade-in delay-2">
+            <section class="panel canvas-panel">
+                <div class="canvas-head">
+                    <h2 data-i18n="canvasPanel.title">Graph Canvas</h2>
+                    <p id="selection-tip">点击节点可编辑；创建节点请使用左侧表单。</p>
+                </div>
+                <div id="network"></div>
+            </section>
+
+            <section class="panel settings-panel">
+                <h2 data-i18n="settingsPanel.title">设置（app_config）</h2>
+                <form id="settings-form" class="stacked-form">
+                    <fieldset class="settings-group">
+                        <legend data-i18n="settingsPanel.backend.legend">LLM 后端</legend>
+                        <label>
+                            <span data-i18n="settingsPanel.backend.current">当前后端</span>
+                            <select id="settings-llm-backend">
+                                <option value="remote_api" data-i18n="settingsPanel.backend.remote_api">remote_api</option>
+                                <option value="local_api" data-i18n="settingsPanel.backend.local_api">local_api</option>
+                                <option value="onnxruntime" data-i18n="settingsPanel.backend.onnxruntime">onnxruntime</option>
+                                <option value="openvino" data-i18n="settingsPanel.backend.openvino">openvino</option>
+                            </select>
+                        </label>
+                    </fieldset>
+
+                    <fieldset class="settings-group">
+                        <legend data-i18n="settingsPanel.remoteApi.legend">Remote API</legend>
+                        <div class="settings-grid">
+                            <label>
+                                <span data-i18n="settingsPanel.remoteApi.apiKey">API Key</span>
+                                <input id="settings-remote-api-key" type="password" autocomplete="off">
+                            </label>
+                            <label>
+                                <span data-i18n="settingsPanel.remoteApi.baseUrl">Base URL</span>
+                                <input id="settings-remote-base-url" type="text">
+                            </label>
+                            <label>
+                                <span data-i18n="settingsPanel.remoteApi.model">Model</span>
+                                <input id="settings-remote-model" type="text">
+                            </label>
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="settings-group">
+                        <legend data-i18n="settingsPanel.localApi.legend">Local API</legend>
+                        <div class="settings-grid">
+                            <label>
+                                <span data-i18n="settingsPanel.localApi.apiKey">API Key</span>
+                                <input id="settings-local-api-key" type="password" autocomplete="off">
+                            </label>
+                            <label>
+                                <span data-i18n="settingsPanel.localApi.baseUrl">Base URL</span>
+                                <input id="settings-local-base-url" type="text">
+                            </label>
+                            <label>
+                                <span data-i18n="settingsPanel.localApi.model">Model</span>
+                                <input id="settings-local-model" type="text">
+                            </label>
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="settings-group">
+                        <legend data-i18n="settingsPanel.localRuntime.legend">Local Runtime</legend>
+                        <div class="settings-grid">
+                            <label>
+                                <span data-i18n="settingsPanel.localRuntime.model">Model</span>
+                                <input id="settings-runtime-model" type="text">
+                            </label>
+                            <label>
+                                <span data-i18n="settingsPanel.localRuntime.modelDir">Model Dir</span>
+                                <input id="settings-runtime-model-dir" type="text">
+                            </label>
+                            <label>
+                                <span data-i18n="settingsPanel.localRuntime.npuDevice">NPU Device</span>
+                                <input id="settings-runtime-npu-device" type="text">
+                            </label>
+                            <label>
+                                <span data-i18n="settingsPanel.localRuntime.onnxProvider">ONNX Provider</span>
+                                <input id="settings-runtime-onnx-provider" type="text">
+                            </label>
+                            <label class="checkbox-label">
+                                <span data-i18n="settingsPanel.localRuntime.requireNpu">Require NPU</span>
+                                <input id="settings-runtime-require-npu" type="checkbox">
+                            </label>
+                        </div>
+                    </fieldset>
+
+                    <div class="stack-inline">
+                        <button id="reload-settings" type="button" class="btn btn-secondary" data-i18n="settingsPanel.reloadButton">重新读取</button>
+                        <button id="save-settings" type="submit" class="btn btn-secondary" data-i18n="settingsPanel.saveButton">保存设置</button>
+                    </div>
+                    <p id="settings-status" class="settings-status" data-i18n="settingsPanel.waitingStatus">等待读取 app_config...</p>
+                </form>
+            </section>
+        </div>
 
         <section class="panel fade-in delay-3">
             <h2 data-i18n="auditPanel.title">Audit Status</h2>
