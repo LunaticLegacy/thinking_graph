@@ -78,9 +78,11 @@ class LLMService:
     GRAPH_GENERATE_SYSTEM_PROMPT_EN = (
         "You are a thinking-graph generator. "
         "Output JSON only; no markdown or extra explanation. "
-        'Output schema: {"nodes":[...],"connections":[...]}. '
+        'Output schema: {"summary":"...","nodes":[...],"connections":[...]}. '
+        "Include a top-level summary in 1-3 sentences. "
         "Each node must include id and content. "
         "Each connection must include source_id, target_id, conn_type. "
+        'Each connection must include a non-empty "description" field. '
         "conn_type must be one of: supports / opposes / relates / leads_to / derives_from. "
         "No self-loop; source_id and target_id must reference existing nodes."
     )
@@ -150,8 +152,14 @@ class LLMService:
     def _graph_generate_system_prompt(self, language: str) -> str:
         normalized = self._normalize_language(language)
         if normalized == "en":
-            return self.GRAPH_GENERATE_SYSTEM_PROMPT_EN
-        return self.GRAPH_GENERATE_SYSTEM_PROMPT
+            base_prompt = self.GRAPH_GENERATE_SYSTEM_PROMPT_EN
+        else:
+            base_prompt = self.GRAPH_GENERATE_SYSTEM_PROMPT
+        return (
+            f"{base_prompt}\n"
+            'Always include a top-level "summary" field with 1-3 sentences.\n'
+            'Each connection must include a non-empty "description" field.'
+        )
 
     def _thinking_graph_paradigm(self, language: str) -> tuple[str, ...]:
         normalized = self._normalize_language(language)
@@ -361,6 +369,7 @@ class LLMService:
                 or "LLM backend is unavailable. Check backend/runtime configuration.",
                 "nodes": [],
                 "connections": [],
+                "summary": "",
                 "node_count": 0,
                 "connection_count": 0,
             }
@@ -388,6 +397,7 @@ class LLMService:
                 "message": raw_response or "LLM graph generation failed.",
                 "nodes": [],
                 "connections": [],
+                "summary": "",
                 "node_count": 0,
                 "connection_count": 0,
             }
@@ -400,6 +410,7 @@ class LLMService:
                 "message": "LLM did not return valid JSON for graph generation.",
                 "nodes": [],
                 "connections": [],
+                "summary": "",
                 "node_count": 0,
                 "connection_count": 0,
             }
@@ -412,6 +423,13 @@ class LLMService:
         nodes, connections = self._normalize_generated_graph_payload(
             graph_payload,
             max_nodes=normalized_max_nodes,
+            language=normalized_language,
+        )
+        summary = self._resolve_generated_graph_summary(
+            payload=payload,
+            graph_payload=graph_payload,
+            nodes=nodes,
+            language=normalized_language,
         )
 
         if not nodes:
@@ -421,6 +439,7 @@ class LLMService:
                 "message": "LLM did not return valid nodes.",
                 "nodes": [],
                 "connections": [],
+                "summary": summary,
                 "node_count": 0,
                 "connection_count": 0,
             }
@@ -431,6 +450,7 @@ class LLMService:
             "message": "graph generated",
             "nodes": nodes,
             "connections": connections,
+            "summary": summary,
             "node_count": len(nodes),
             "connection_count": len(connections),
         }
@@ -448,8 +468,10 @@ class LLMService:
                 f"3. conn_type can only be: {connection_types}.\n"
                 "4. Connections are directed and self-loop is forbidden.\n"
                 "5. source_id and target_id must reference defined nodes.\n"
-                "6. Keep structure clear; sparse connections are acceptable when appropriate.\n"
-                '7. Output JSON only: {"nodes":[...],"connections":[...]}\n'
+                "6. Each connection must include a concise, non-empty `description` explaining why it holds.\n"
+                "7. Keep structure clear; sparse connections are acceptable when appropriate.\n"
+                "8. Include a top-level summary in field `summary` (1-3 sentences).\n"
+                '9. Output JSON only: {"summary":"...","nodes":[...],"connections":[...]}\n'
             )
 
         return (
@@ -465,11 +487,115 @@ class LLMService:
             '7. 只输出 JSON 对象: {"nodes":[...],"connections":[...]}\n'
         )
 
+    def _resolve_generated_graph_summary(
+        self,
+        *,
+        payload: dict[str, Any],
+        graph_payload: dict[str, Any],
+        nodes: list[dict[str, Any]],
+        language: str,
+    ) -> str:
+        _ = language
+        for source in (graph_payload, payload):
+            summary = self._extract_summary_text(source)
+            if summary:
+                return summary
+        return self._fallback_graph_summary(nodes)
+
+    @staticmethod
+    def _extract_summary_text(payload: dict[str, Any]) -> str:
+        for field in ("summary", "graph_summary", "overview", "abstract"):
+            value = payload.get(field)
+            if isinstance(value, str):
+                text = value.strip()
+                if text:
+                    return text
+        return ""
+
+    @staticmethod
+    def _fallback_graph_summary(nodes: list[dict[str, Any]]) -> str:
+        highlights: list[str] = []
+        for node in nodes[:3]:
+            if not isinstance(node, dict):
+                continue
+            raw_text = str(node.get("summary", "") or node.get("content", "")).strip()
+            if not raw_text:
+                continue
+            highlights.append(raw_text[:96])
+        if not highlights:
+            return ""
+        return "Core points: " + "; ".join(highlights)
+
+    def _normalize_generated_connection_description(
+        self,
+        *,
+        raw_description: str,
+        conn_type: str,
+        source_node: dict[str, Any] | None,
+        target_node: dict[str, Any] | None,
+        language: str,
+    ) -> str:
+        text = (raw_description or "").strip()
+        invalid_tokens = {"", "none", "n/a", "na", "null", "unknown", "tbd"}
+        if text and text.lower() not in invalid_tokens:
+            return text
+        return self._fallback_generated_connection_description(
+            conn_type=conn_type,
+            source_node=source_node,
+            target_node=target_node,
+            language=language,
+        )
+
+    @staticmethod
+    def _node_hint_text(node: dict[str, Any] | None, *, max_len: int = 28) -> str:
+        if not isinstance(node, dict):
+            return ""
+        raw_text = str(node.get("summary", "") or node.get("content", "")).strip()
+        if not raw_text:
+            return ""
+        if len(raw_text) <= max_len:
+            return raw_text
+        return raw_text[: max_len - 3].rstrip() + "..."
+
+    def _fallback_generated_connection_description(
+        self,
+        *,
+        conn_type: str,
+        source_node: dict[str, Any] | None,
+        target_node: dict[str, Any] | None,
+        language: str,
+    ) -> str:
+        normalized_language = self._normalize_language(language)
+        source_fallback = "source" if normalized_language == "en" else "源节点"
+        target_fallback = "target" if normalized_language == "en" else "目标节点"
+        source_text = self._node_hint_text(source_node) or source_fallback
+        target_text = self._node_hint_text(target_node) or target_fallback
+
+        if normalized_language == "en":
+            templates = {
+                ConnectionType.SUPPORTS.value: f"{source_text} supports {target_text}.",
+                ConnectionType.OPPOSES.value: f"{source_text} opposes {target_text}.",
+                ConnectionType.RELATES.value: f"{source_text} is related to {target_text}.",
+                ConnectionType.LEADS_TO.value: f"{source_text} may lead to {target_text}.",
+                ConnectionType.DERIVES_FROM.value: f"{source_text} derives from {target_text}.",
+            }
+            return templates.get(conn_type, templates[ConnectionType.RELATES.value])
+
+        templates = {
+            ConnectionType.SUPPORTS.value: f"{source_text} 支持 {target_text}。",
+            ConnectionType.OPPOSES.value: f"{source_text} 反驳 {target_text}。",
+            ConnectionType.RELATES.value: f"{source_text} 与 {target_text} 相关。",
+            ConnectionType.LEADS_TO.value: f"{source_text} 可能导致 {target_text}。",
+            ConnectionType.DERIVES_FROM.value: f"{source_text} 源自 {target_text}。",
+        }
+        return templates.get(conn_type, templates[ConnectionType.RELATES.value])
+
     def _normalize_generated_graph_payload(
         self,
         payload: dict[str, Any],
         *,
         max_nodes: int,
+        language: str,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         raw_nodes = payload.get("nodes")
         if not isinstance(raw_nodes, list):
@@ -520,6 +646,7 @@ class LLMService:
             return [], []
 
         node_ids = {node["id"] for node in nodes}
+        node_by_id = {node["id"]: node for node in nodes}
         raw_connections = payload.get("connections")
         connections: list[dict[str, Any]] = []
 
@@ -547,7 +674,13 @@ class LLMService:
             if conn_type not in ConnectionType.values():
                 conn_type = ConnectionType.RELATES.value
 
-            description = str(item.get("description", "")).strip()
+            description = self._normalize_generated_connection_description(
+                raw_description=str(item.get("description", "")),
+                conn_type=conn_type,
+                source_node=node_by_id.get(source_id),
+                target_node=node_by_id.get(target_id),
+                language=language,
+            )
             strength = self._clamp_float(
                 self._to_float(item.get("strength"), 1.0),
                 0.1,

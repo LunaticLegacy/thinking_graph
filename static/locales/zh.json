@@ -136,7 +136,8 @@
     "generating": "生成中...",
     "llmUnavailable": "LLM 后端不可用。",
     "generatedResult": "已生成并替换图谱：%nodes% 个节点 / %connections% 条连接",
-    "exportBtn": "导出审计报告"
+    "exportBtn": "导出审计报告",
+    "generatedSummaryLabel": "摘要"
   },
   "messages": {
     "nodeRequired": "节点内容为必填项。",

@@ -660,6 +660,30 @@ def llm_generate_graph():
     actor = actor_name()
     reason = f"llm generate graph from topic: {topic[:80]}"
 
+    def fallback_connection_description(conn_type: str, source_label: str, target_label: str) -> str:
+        normalized_type = conn_type if conn_type in {"supports", "opposes", "relates", "leads_to", "derives_from"} else "relates"
+        source_text = source_label.strip() or ("source" if language == "en" else "源节点")
+        target_text = target_label.strip() or ("target" if language == "en" else "目标节点")
+
+        if language == "en":
+            templates = {
+                "supports": f"{source_text} supports {target_text}.",
+                "opposes": f"{source_text} opposes {target_text}.",
+                "relates": f"{source_text} is related to {target_text}.",
+                "leads_to": f"{source_text} may lead to {target_text}.",
+                "derives_from": f"{source_text} derives from {target_text}.",
+            }
+            return templates.get(normalized_type, templates["relates"])
+
+        templates = {
+            "supports": f"{source_text} 支持 {target_text}。",
+            "opposes": f"{source_text} 反驳 {target_text}。",
+            "relates": f"{source_text} 与 {target_text} 相关。",
+            "leads_to": f"{source_text} 可能导致 {target_text}。",
+            "derives_from": f"{source_text} 源自 {target_text}。",
+        }
+        return templates.get(normalized_type, templates["relates"])
+
     graph_service().clear_graph(
         GraphClearPayload(reason=reason),
         actor=actor,
@@ -667,6 +691,7 @@ def llm_generate_graph():
     )
 
     node_id_map: dict[str, str] = {}
+    source_node_label_map: dict[str, str] = {}
     created_nodes = 0
     created_connections = 0
     used_colors: set[str] = set()
@@ -699,6 +724,8 @@ def llm_generate_graph():
         used_colors.add(node_color)
         if source_node_id:
             node_id_map[source_node_id] = created.id
+            source_label = str(item.get("summary", "")).strip() or str(item.get("content", "")).strip()
+            source_node_label_map[source_node_id] = source_label[:40]
 
     generated_connections = generated.get("connections")
     if isinstance(generated_connections, list):
@@ -713,12 +740,21 @@ def llm_generate_graph():
             if not new_source or not new_target or new_source == new_target:
                 continue
 
+            conn_type = str(item.get("conn_type", "relates")).strip() or "relates"
+            description_text = str(item.get("description", "")).strip()
+            if description_text.lower() in {"", "none", "n/a", "na", "null", "unknown", "tbd"}:
+                description_text = fallback_connection_description(
+                    conn_type=conn_type,
+                    source_label=source_node_label_map.get(old_source, old_source),
+                    target_label=source_node_label_map.get(old_target, old_target),
+                )
+
             conn_payload = ConnectionCreatePayload.from_mapping(
                 {
                     "source_id": new_source,
                     "target_id": new_target,
-                    "conn_type": item.get("conn_type", "relates"),
-                    "description": item.get("description", ""),
+                    "conn_type": conn_type,
+                    "description": description_text,
                     "strength": item.get("strength", 1.0),
                     "reason": reason,
                 }
@@ -738,6 +774,7 @@ def llm_generate_graph():
             "enabled": True,
             "model": generated.get("model"),
             "message": "graph replaced by LLM generation",
+            "summary": str(generated.get("summary", "")).strip(),
             "node_count": created_nodes,
             "connection_count": created_connections,
         }

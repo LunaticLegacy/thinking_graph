@@ -8,6 +8,8 @@
 
 ### 让思维可见 · 让逻辑可触
 
+(Public Alpha)
+
 **可视化思维与论证关系的开源工具**
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
@@ -19,7 +21,7 @@
 
 <br />
 
-<img src="https://raw.githubusercontent.com/LunaticLegacy/thinking_graph/main/assets/screenshot.png" width="90%" alt="Thinking Graph Screenshot" />
+<img src="https://raw.githubusercontent.com/LunaticLegacy/thinking_graph/main/assets/screenshot_cn.png" width="90%" alt="Thinking Graph Screenshot" />
 
 </div>
 

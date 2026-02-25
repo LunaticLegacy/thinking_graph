@@ -1475,12 +1475,19 @@ if (llmGenerateForm) {
             }
 
             await loadGraph();
-            output.textContent = i18n
+            const generatedResultText = i18n
                 ? i18n.t("auditPanel.generatedResult", {
                     nodes: result.node_count,
                     connections: result.connection_count,
                 })
                 : `Generated and replaced graph: ${result.node_count} nodes / ${result.connection_count} connections`;
+            const summaryText = String(result.summary || "").trim();
+            if (summaryText) {
+                const summaryLabel = i18n ? i18n.t("auditPanel.generatedSummaryLabel") : "Summary";
+                output.textContent = `${generatedResultText}\n\n${summaryLabel}: ${summaryText}`;
+            } else {
+                output.textContent = generatedResultText;
+            }
             showMessage(i18n ? i18n.t("messages.llmGeneratedReplaced") : "LLM generated and replaced the current graph.");
         } catch (error) {
             output.textContent = error.message;

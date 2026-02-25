@@ -136,7 +136,8 @@
     "cancelled": "Cancelled.",
     "generating": "Generating...",
     "llmUnavailable": "LLM backend is unavailable.",
-    "generatedResult": "Generated and replaced graph: %nodes% nodes / %connections% connections"
+    "generatedResult": "Generated and replaced graph: %nodes% nodes / %connections% connections",
+    "generatedSummaryLabel": "Summary"
   },
   "messages": {
     "nodeRequired": "Node content is required.",

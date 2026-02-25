@@ -4,9 +4,11 @@
 
 <img src="https://raw.githubusercontent.com/LunaticLegacy/thinking_graph/main/assets/logo.png" width="120" alt="Thinking Graph Logo" />
 
-# Thinking Graph
+# Thinking Graph - Public Alpha
 
 ### Make Thinking Visible · Make Logic Tangible
+
+(Public Alpha)
 
 **An open-source tool for visualizing thoughts and argumentation**
 
@@ -19,7 +21,7 @@
 
 <br />
 
-<img src="https://raw.githubusercontent.com/LunaticLegacy/thinking_graph/main/assets/screenshot.png" width="90%" alt="Thinking Graph Screenshot" />
+<img src="https://raw.githubusercontent.com/LunaticLegacy/thinking_graph/main/assets/screenshot_en.png" width="90%" alt="Thinking Graph Screenshot" />
 
 </div>
 
