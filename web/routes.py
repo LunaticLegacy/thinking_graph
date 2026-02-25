@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
+import re
 from typing import Mapping
 
 from flask import Blueprint, current_app, jsonify, render_template, request
@@ -30,6 +31,38 @@ from datamodels.graph_models import (
 )
 
 web_bp = Blueprint("web", __name__)
+
+DEFAULT_NODE_COLOR = "#157f83"
+LLM_NODE_COLOR_PALETTE: tuple[str, ...] = (
+    DEFAULT_NODE_COLOR,
+    "#2d936c",
+    "#3f88c5",
+    "#f4a259",
+    "#d1495b",
+    "#6c757d",
+)
+
+
+def normalize_hex_color(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    color = value.strip().lower()
+    if re.fullmatch(r"#(?:[0-9a-f]{6})", color):
+        return color
+    return None
+
+
+def pick_llm_node_color(index: int, provided_color: object, used_colors: set[str]) -> str:
+    normalized = normalize_hex_color(provided_color)
+    if normalized and normalized not in used_colors:
+        return normalized
+
+    palette_size = len(LLM_NODE_COLOR_PALETTE)
+    for offset in range(palette_size):
+        candidate = LLM_NODE_COLOR_PALETTE[(index + offset) % palette_size]
+        if candidate not in used_colors:
+            return candidate
+    return LLM_NODE_COLOR_PALETTE[index % palette_size]
 
 
 def graph_service():
@@ -325,18 +358,20 @@ def llm_generate_graph():
     node_id_map: dict[str, str] = {}
     created_nodes = 0
     created_connections = 0
+    used_colors: set[str] = set()
 
-    for item in generated_nodes:
+    for index, item in enumerate(generated_nodes):
         if not isinstance(item, Mapping):
             continue
 
         source_node_id = str(item.get("id", "")).strip()
+        node_color = pick_llm_node_color(index, item.get("color"), used_colors)
         node_payload = NodeCreatePayload.from_mapping(
             {
                 "content": item.get("content", ""),
                 "summary": item.get("summary", ""),
                 "confidence": item.get("confidence", 1.0),
-                "color": item.get("color", "#157f83"),
+                "color": node_color,
                 "reason": reason,
             }
         )
@@ -350,6 +385,7 @@ def llm_generate_graph():
             continue
 
         created_nodes += 1
+        used_colors.add(node_color)
         if source_node_id:
             node_id_map[source_node_id] = created.id
 

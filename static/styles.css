@@ -1,4 +1,4 @@
-﻿:root {
+:root {
     --bg: #f7f2e8;
     --bg-panel: #fffdf8;
     --ink: #1f2c34;
@@ -118,6 +118,13 @@ h2 {
     margin: 0;
     color: var(--muted);
     font-size: 13px;
+}
+
+#node-form-mode {
+    margin: 0;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.45;
 }
 
 #network {
@@ -340,4 +347,24 @@ textarea {
     .dual-field-row {
         grid-template-columns: 1fr;
     }
+}
+
+/* 语言切换器样式 */
+.language-switcher {
+    display: flex;
+    align-items: center;
+    margin-left: 1rem;
+}
+
+.language-switcher select {
+    background-color: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: 4px;
+    padding: 0.4rem 0.8rem;
+    color: white;
+    cursor: pointer;
+}
+
+.language-switcher select:hover {
+    background-color: rgba(255, 255, 255, 0.24);
 }

@@ -1,0 +1,110 @@
+{
+  "appTitle": "Thinking Graph",
+  "header": {
+    "title": "Thinking Graph",
+    "subtitle": "Opinion Node Relationship Map",
+    "refresh": "Refresh"
+  },
+  "nodePanel": {
+    "title": "Add Opinion Node",
+    "contentLabel": "Opinion Content",
+    "contentPlaceholder": "For example: Remote work can improve deep work efficiency",
+    "summaryLabel": "Brief Summary",
+    "summaryPlaceholder": "For example: Remote work improves efficiency",
+    "confidenceLabel": "Confidence (0~1)",
+    "colorLabel": "Node Color",
+    "createBtn": "Create Node",
+    "updateHint": "Click blank canvas to create a node; after selecting a node, submitting the form will update the node properties.",
+    "editNode": "Editing node %nodeId%",
+    "createNode": "Create Node",
+    "blankCanvasHint": "Click blank space to create a node; click a node to edit its attributes"
+  },
+  "connectionPanel": {
+    "title": "Create Connection",
+    "sourceLabel": "Source Opinion",
+    "targetLabel": "Target Opinion",
+    "typeLabel": "Relationship Type",
+    "descriptionLabel": "Relationship Description",
+    "descriptionPlaceholder": "For example: A serves as a prerequisite for B",
+    "createBtn": "Create Connection",
+    "types": {
+      "supports": "Supports",
+      "opposes": "Opposes",
+      "relates": "Relates",
+      "leads_to": "Leads To",
+      "derives_from": "Derives From"
+    }
+  },
+  "actionButtons": {
+    "deleteNode": "Delete Selected Node",
+    "deleteConnection": "Delete Selected Connection",
+    "updateColor": "Update Selected Node Color",
+    "tidyGraph": "Tidy Layout"
+  },
+  "saveLoadPanel": {
+    "title": "Save/Load Thinking Graph",
+    "nameLabel": "Snapshot Name",
+    "namePlaceholder": "For example: Discussion Version-v1",
+    "saveBtn": "Save Current Graph",
+    "loadBtn": "Load Selected Graph",
+    "refreshListBtn": "Refresh List",
+    "deleteBtn": "Delete Saved Graph",
+    "clearBtn": "Clear Current Graph",
+    "exportJson": "Export JSON",
+    "importJson": "Import JSON"
+  },
+  "auditPanel": {
+    "title": "Audit Status",
+    "verifyBtn": "Audit Integrity Check",
+    "status": {
+      "unchecked": "Unchecked",
+      "valid": "Valid",
+      "invalid": "Invalid"
+    },
+    "historyTitle": "Recent Audit Records",
+    "noRecords": "No audit records",
+    "llmTitle": "LLM Interface",
+    "reviewBtn": "Review Graph Validity",
+    "waitingReview": "Waiting for review...",
+    "topicLabel": "Topic",
+    "generatePlaceholder": "Enter a topic for LLM to generate a thinking graph and overwrite the current one",
+    "generateBtn": "Generate and Overwrite Current Graph",
+    "waitingGenerate": "Waiting for generation...",
+    "promptLabel": "Prompt",
+    "promptPlaceholder": "Ask LLM to break down key opinions and conflicting relationships in this topic",
+    "callBtn": "Call LLM",
+    "waitingCall": "Waiting for call..."
+  },
+  "messages": {
+    "nodeRequired": "Node content is required.",
+    "invalidColor": "Node color must be a valid hex color (e.g., #157f83).",
+    "nodeCreated": "Created node: %nodeId%",
+    "nodeUpdated": "Updated selected node attributes.",
+    "nodeSelected": "Selected node: %nodeId%",
+    "connectionSelected": "Selected connection: %connectionId%",
+    "noNodeSelected": "Please select a node first.",
+    "noConnectionSelected": "Please select a connection first.",
+    "noNodesToTidy": "No nodes to tidy.",
+    "tidying": "Tidying...",
+    "layoutTidied": "Layout tidied and saved (%count% nodes).",
+    "layoutTidiedWithErrors": "Layout tidied, but %failed% node positions failed to save.",
+    "graphSaved": "Saved graph: %name%",
+    "graphLoaded": "Loaded graph: %name%",
+    "graphDeleted": "Deleted graph: %name%",
+    "noGraphSelected": "Please choose a saved graph first.",
+    "confirmDelete": "Delete saved graph \"%name%\"?",
+    "snapshotNameRequired": "Please enter a snapshot name.",
+    "nodeEdited": "Editing node %nodeId%. Submitting the form updates this node.",
+    "nodeCreatedBlank": "Click blank canvas to create a node. Select a node, then submit the form to update it."
+  },
+  "errors": {
+    "requestFailed": "Request failed with status %status%",
+    "defaultError": "Operation failed"
+  },
+  "common": {
+    "yes": "Yes",
+    "no": "No",
+    "ok": "OK",
+    "cancel": "Cancel"
+  }
+}

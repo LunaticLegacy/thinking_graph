@@ -1,0 +1,110 @@
+{
+  "appTitle": "思考图谱",
+  "header": {
+    "title": "思考图谱",
+    "subtitle": "观点节点关系图",
+    "refresh": "刷新"
+  },
+  "nodePanel": {
+    "title": "新增观点节点",
+    "contentLabel": "观点内容",
+    "contentPlaceholder": "例如：远程办公可以提升深度工作效率",
+    "summaryLabel": "简短摘要",
+    "summaryPlaceholder": "例如：远程办公提升效率",
+    "confidenceLabel": "置信度 (0~1)",
+    "colorLabel": "节点颜色",
+    "createBtn": "创建节点",
+    "updateHint": "点击画布空白处可创建节点；选中节点后，提交表单会更新该节点属性。",
+    "editNode": "编辑节点 %nodeId%",
+    "createNode": "创建节点",
+    "blankCanvasHint": "点击空白创建节点；点击节点可编辑属性"
+  },
+  "connectionPanel": {
+    "title": "创建连接",
+    "sourceLabel": "起点观点",
+    "targetLabel": "终点观点",
+    "typeLabel": "关系类型",
+    "descriptionLabel": "关系描述",
+    "descriptionPlaceholder": "例如：A 作为 B 的前提条件",
+    "createBtn": "创建连接",
+    "types": {
+      "supports": "支持",
+      "opposes": "反对",
+      "relates": "关联",
+      "leads_to": "导致",
+      "derives_from": "源自"
+    }
+  },
+  "actionButtons": {
+    "deleteNode": "删除选中节点",
+    "deleteConnection": "删除选中连接",
+    "updateColor": "更新选中节点颜色",
+    "tidyGraph": "一键整理布局"
+  },
+  "saveLoadPanel": {
+    "title": "保存/加载思考图",
+    "nameLabel": "快照名称",
+    "namePlaceholder": "例如：讨论版本-v1",
+    "saveBtn": "保存当前图",
+    "loadBtn": "加载选中图",
+    "refreshListBtn": "刷新列表",
+    "deleteBtn": "删除已保存图",
+    "clearBtn": "清空当前图",
+    "exportJson": "导出JSON",
+    "importJson": "导入JSON"
+  },
+  "auditPanel": {
+    "title": "审计状态",
+    "verifyBtn": "审计完整性检查",
+    "status": {
+      "unchecked": "未检查",
+      "valid": "有效",
+      "invalid": "无效"
+    },
+    "historyTitle": "最近审计记录",
+    "noRecords": "无审计记录",
+    "llmTitle": "LLM 入口",
+    "reviewBtn": "一键审核思考图有效性",
+    "waitingReview": "等待审核...",
+    "topicLabel": "Topic",
+    "generatePlaceholder": "输入主题，让 LLM 生成思考图并覆盖当前图",
+    "generateBtn": "生成并覆盖当前图",
+    "waitingGenerate": "等待生成...",
+    "promptLabel": "Prompt",
+    "promptPlaceholder": "让 LLM 帮我拆分该主题的关键观点与冲突关系",
+    "callBtn": "调用 LLM",
+    "waitingCall": "等待调用..."
+  },
+  "messages": {
+    "nodeRequired": "节点内容是必需的。",
+    "invalidColor": "节点颜色必须是有效的十六进制颜色（例如 #157f83）。",
+    "nodeCreated": "创建节点：%nodeId%",
+    "nodeUpdated": "已更新选中节点属性。",
+    "nodeSelected": "选中节点：%nodeId%",
+    "connectionSelected": "选中连接：%connectionId%",
+    "noNodeSelected": "请先选择一个节点。",
+    "noConnectionSelected": "请先选择一个连接。",
+    "noNodesToTidy": "没有节点可整理。",
+    "tidying": "整理中...",
+    "layoutTidied": "布局已整理并保存（%count% 个节点）。",
+    "layoutTidiedWithErrors": "布局已整理，但 %failed% 个节点位置保存失败。",
+    "graphSaved": "已保存图表：%name%",
+    "graphLoaded": "已加载图表：%name%",
+    "graphDeleted": "已删除图表：%name%",
+    "noGraphSelected": "请先选择一个已保存的图表。",
+    "confirmDelete": "删除已保存的图表 \"%name%\"？",
+    "snapshotNameRequired": "请输入快照名称。",
+    "nodeEdited": "正在编辑节点 %nodeId%。提交表单将更新此节点。",
+    "nodeCreatedBlank": "点击空白画布创建节点。选择节点后，提交表单将更新它。"
+  },
+  "errors": {
+    "requestFailed": "请求失败，状态码 %status%",
+    "defaultError": "操作失败"
+  },
+  "common": {
+    "yes": "是",
+    "no": "否",
+    "ok": "确定",
+    "cancel": "取消"
+  }
+}

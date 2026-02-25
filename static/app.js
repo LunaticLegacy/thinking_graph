@@ -66,7 +66,9 @@ function showMessage(message, isError = false) {
     if (!tip) {
         return;
     }
-    tip.textContent = message;
+    // 尝试使用国际化消息，如果找不到则使用原始消息
+    const translatedMessage = typeof i18n !== 'undefined' ? i18n.t(message) : message;
+    tip.textContent = translatedMessage || message;
     tip.style.color = isError ? "#ca553d" : "#5f6f7c";
 }
 
@@ -88,7 +90,9 @@ async function api(url, options = {}) {
     }
 
     if (!response.ok) {
-        throw new Error(payload.error || `Request failed with status ${response.status}`);
+        const errorMsg = payload.error || 
+            (i18n ? i18n.t('errors.requestFailed', { status: response.status }) : `Request failed with status ${response.status}`);
+        throw new Error(errorMsg);
     }
 
     return payload;
@@ -214,7 +218,7 @@ function renderAudits(audits) {
 
     if (!audits.length) {
         const item = document.createElement("li");
-        item.textContent = "暂无审计记录";
+        item.textContent = "No audit records.";
         list.appendChild(item);
     }
 }
@@ -243,7 +247,7 @@ function renderSavedGraphs(graphs, preferredName = null) {
     if (!graphs.length) {
         const option = document.createElement("option");
         option.value = "";
-        option.textContent = "暂无已保存思考图";
+        option.textContent = "No saved graphs.";
         select.appendChild(option);
         select.value = "";
         return;
@@ -262,18 +266,130 @@ async function loadSavedGraphs(preferredName = null) {
     renderSavedGraphs(state.savedGraphs, preferredName);
 }
 
-function syncColorInputFromSelection() {
+const DEFAULT_NODE_COLOR = "#157f83";
+const DEFAULT_NODE_CONTENT = "New node";
+
+function getNodeFormElements() {
+    const form = document.getElementById("node-form");
+    return {
+        form,
+        contentInput: document.getElementById("node-content"),
+        summaryInput: document.getElementById("node-summary"),
+        confidenceInput: document.getElementById("node-confidence"),
+        colorInput: document.getElementById("node-color"),
+        submitButton: form ? form.querySelector('button[type="submit"]') : null,
+        modeHint: document.getElementById("node-form-mode"),
+    };
+}
+
+function getNodeFormValues({ fallbackContent = "" } = {}) {
+    const { contentInput, summaryInput, confidenceInput, colorInput } = getNodeFormElements();
+    const rawContent = contentInput ? contentInput.value.trim() : "";
+    const confidenceRaw = Number(confidenceInput ? confidenceInput.value : "1");
+
+    return {
+        content: rawContent || fallbackContent,
+        summary: summaryInput ? summaryInput.value.trim() : "",
+        confidence: Number.isFinite(confidenceRaw)
+            ? Math.min(Math.max(confidenceRaw, 0), 1)
+            : 1,
+        color: (colorInput ? colorInput.value : DEFAULT_NODE_COLOR).trim() || DEFAULT_NODE_COLOR,
+    };
+}
+
+function updateNodeFormModeHint(selectedNode = null) {
+    const { submitButton, modeHint } = getNodeFormElements();
+    if (selectedNode) {
+        if (submitButton) {
+            submitButton.textContent = i18n ? i18n.t('nodePanel.editNode', { nodeId: selectedNode.id.slice(0, 8) }) : "Update selected node";
+        }
+        if (modeHint) {
+            modeHint.textContent = i18n ? i18n.t('nodePanel.nodeEdited', { nodeId: selectedNode.id.slice(0, 8) }) : `Editing node ${selectedNode.id.slice(0, 8)}. Submitting the form updates this node.`;
+        }
+        return;
+    }
+
+    if (submitButton) {
+        submitButton.textContent = i18n ? i18n.t('nodePanel.createNode') : "Create node";
+    }
+    if (modeHint) {
+        modeHint.textContent = i18n ? i18n.t('nodePanel.nodeCreatedBlank') : "Click blank canvas to create a node. Select a node, then submit the form to update it.";
+    }
+}
+
+function resetNodeFormToCreateDefaults() {
+    const { form, confidenceInput } = getNodeFormElements();
+    if (form) {
+        form.reset();
+    }
+    if (confidenceInput) {
+        confidenceInput.value = "1";
+    }
+    setColorInputValue(DEFAULT_NODE_COLOR);
+    updateNodeFormModeHint(null);
+}
+
+function syncNodeFormFromSelection() {
     if (!state.selectedNodeId) {
+        updateNodeFormModeHint(null);
         return;
     }
     const selectedNode = state.nodes.find((item) => item.id === state.selectedNodeId);
     if (!selectedNode) {
+        updateNodeFormModeHint(null);
         return;
     }
+
+    const { contentInput, summaryInput, confidenceInput } = getNodeFormElements();
+    if (contentInput) {
+        contentInput.value = selectedNode.content || "";
+    }
+    if (summaryInput) {
+        summaryInput.value = selectedNode.summary || "";
+    }
+    if (confidenceInput) {
+        confidenceInput.value = String(selectedNode.confidence ?? 1);
+    }
     setColorInputValue(selectedNode.color);
+    updateNodeFormModeHint(selectedNode);
 }
 
-async function loadGraph() {
+async function createNodeFromForm({
+    position = null,
+    reason = "created in web form",
+    fallbackContent = "",
+} = {}) {
+    const payload = getNodeFormValues({ fallbackContent });
+
+    if (!payload.content) {
+        showMessage(i18n ? i18n.t('messages.nodeRequired') : "Node content is required.", true);
+        return null;
+    }
+    if (!isValidHexColor(payload.color)) {
+        const msg = i18n ? i18n.t('messages.invalidColor') : "Node color must be a valid hex color (for example #157f83).";
+        showMessage(msg, true);
+        return null;
+    }
+
+    if (
+        position
+        && Number.isFinite(position.x)
+        && Number.isFinite(position.y)
+    ) {
+        payload.position = { x: Number(position.x), y: Number(position.y) };
+    }
+
+    payload.reason = reason;
+    return api("/api/nodes", {
+        method: "POST",
+        body: JSON.stringify(payload),
+    });
+}
+
+async function loadGraph(options = {}) {
+    const preferredNodeId = options.preferredNodeId || null;
+    const preferredConnectionId = options.preferredConnectionId || null;
+
     const snapshot = await api("/api/graph");
     state.nodes = snapshot.nodes || [];
     state.connections = snapshot.connections || [];
@@ -281,32 +397,72 @@ async function loadGraph() {
     renderGraph(snapshot.visualization || { nodes: [], edges: [] });
     refreshSelectors();
 
-    state.selectedNodeId = null;
-    state.selectedConnectionId = null;
-    showMessage("点击节点或连接查看并操作");
+    const keepNodeSelection = (
+        !!preferredNodeId
+        && state.nodes.some((item) => item.id === preferredNodeId)
+    );
+    const keepConnectionSelection = (
+        !!preferredConnectionId
+        && state.connections.some((item) => item.id === preferredConnectionId)
+    );
+
+    state.selectedNodeId = keepNodeSelection ? preferredNodeId : null;
+    state.selectedConnectionId = (
+        state.selectedNodeId ? null : (keepConnectionSelection ? preferredConnectionId : null)
+    );
+
+    if (state.selectedNodeId) {
+        syncNodeFormFromSelection();
+        const msg = i18n ? i18n.t('messages.nodeSelected', { nodeId: state.selectedNodeId.slice(0, 8) }) : `Selected node: ${state.selectedNodeId.slice(0, 8)}`;
+        showMessage(msg);
+    } else if (state.selectedConnectionId) {
+        updateNodeFormModeHint(null);
+        const msg = i18n ? i18n.t('messages.connectionSelected', { connectionId: state.selectedConnectionId.slice(0, 8) }) : `Selected connection: ${state.selectedConnectionId.slice(0, 8)}`;
+        showMessage(msg);
+    } else {
+        updateNodeFormModeHint(null);
+        showMessage(i18n ? i18n.t('nodePanel.blankCanvasHint') : "Click blank space to create a node. Click a node to edit its attributes.");
+    }
 
     await Promise.all([loadAudits(), loadSavedGraphs()]);
 }
 
-network.on("click", (params) => {
+network.on("click", async (params) => {
     if (params.nodes.length > 0) {
         state.selectedNodeId = params.nodes[0];
         state.selectedConnectionId = null;
-        syncColorInputFromSelection();
-        showMessage(`已选中节点: ${state.selectedNodeId.slice(0, 8)}`);
+        syncNodeFormFromSelection();
+        const msg = i18n ? i18n.t('messages.nodeSelected', { nodeId: state.selectedNodeId.slice(0, 8) }) : `Selected node: ${state.selectedNodeId.slice(0, 8)}`;
+        showMessage(msg);
         return;
     }
 
     if (params.edges.length > 0) {
         state.selectedNodeId = null;
         state.selectedConnectionId = params.edges[0];
-        showMessage(`已选中连接: ${state.selectedConnectionId.slice(0, 8)}`);
+        updateNodeFormModeHint(null);
+        const msg = i18n ? i18n.t('messages.connectionSelected', { connectionId: state.selectedConnectionId.slice(0, 8) }) : `Selected connection: ${state.selectedConnectionId.slice(0, 8)}`;
+        showMessage(msg);
         return;
     }
 
-    state.selectedNodeId = null;
-    state.selectedConnectionId = null;
-    showMessage("未选中元素");
+    try {
+        const created = await createNodeFromForm({
+            position: params.pointer && params.pointer.canvas ? params.pointer.canvas : null,
+            reason: "created by blank canvas click",
+            fallbackContent: DEFAULT_NODE_CONTENT,
+        });
+        if (!created || !created.id) {
+            return;
+        }
+
+        resetNodeFormToCreateDefaults();
+        await loadGraph({ preferredNodeId: created.id });
+        const msg = i18n ? i18n.t('messages.nodeCreated', { nodeId: created.id.slice(0, 8) }) : `Created node: ${created.id.slice(0, 8)}`;
+        showMessage(msg);
+    } catch (error) {
+        showMessage(error.message, true);
+    }
 });
 
 network.on("dragEnd", async (params) => {
@@ -348,26 +504,50 @@ if (nodeForm) {
     nodeForm.addEventListener("submit", async (event) => {
         event.preventDefault();
 
-        const content = document.getElementById("node-content").value;
-        const summary = document.getElementById("node-summary").value;
-        const confidence = Number(document.getElementById("node-confidence").value);
-        const color = document.getElementById("node-color").value;
+        const payload = getNodeFormValues();
+        if (!payload.content) {
+            const msg = i18n ? i18n.t('messages.nodeRequired') : "Node content is required.";
+            showMessage(msg, true);
+            return;
+        }
+        if (!isValidHexColor(payload.color)) {
+            const msg = i18n ? i18n.t('messages.invalidColor') : "Node color must be a valid hex color (for example #157f83).";
+            showMessage(msg, true);
+            return;
+        }
 
         try {
-            await api("/api/nodes", {
-                method: "POST",
-                body: JSON.stringify({
-                    content,
-                    summary,
-                    confidence,
-                    color,
-                    reason: "created in web form",
-                }),
+            if (state.selectedNodeId) {
+                const nodeId = state.selectedNodeId;
+                await api(`/api/nodes/${nodeId}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({
+                        content: payload.content,
+                        summary: payload.summary,
+                        confidence: payload.confidence,
+                        color: payload.color,
+                        reason: "update selected node attributes in web form",
+                    }),
+                });
+                await loadGraph({ preferredNodeId: nodeId });
+                const msg = i18n ? i18n.t('messages.nodeUpdated') : "Updated selected node attributes.";
+                showMessage(msg);
+
+                return;
+            }
+
+            const created = await createNodeFromForm({
+                reason: "created in web form",
             });
-            event.target.reset();
-            document.getElementById("node-confidence").value = "1";
-            setColorInputValue("#157f83");
-            await loadGraph();
+            if (!created || !created.id) {
+                return;
+            }
+
+            resetNodeFormToCreateDefaults();
+            await loadGraph({ preferredNodeId: created.id });
+            const msg = i18n ? i18n.t('messages.nodeCreated', { nodeId: created.id.slice(0, 8) }) : `Created node: ${created.id.slice(0, 8)}`;
+            showMessage(msg);
+
         } catch (error) {
             showMessage(error.message, true);
         }
@@ -403,11 +583,106 @@ if (connectionForm) {
     });
 }
 
+async function stabilizeNetworkLayout(iterations = 320, timeoutMs = 2800) {
+    await new Promise((resolve) => {
+        let settled = false;
+        const finish = () => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            resolve();
+        };
+
+        const timer = window.setTimeout(() => {
+            finish();
+        }, timeoutMs);
+
+        network.once("stabilizationIterationsDone", () => {
+            window.clearTimeout(timer);
+            finish();
+        });
+
+        network.stabilize(iterations);
+    });
+}
+
+async function persistCurrentNodePositions(reason) {
+    const nodeIds = state.nodes.map((node) => node.id);
+    if (!nodeIds.length) {
+        return { updated: 0, failed: 0 };
+    }
+
+    const positions = network.getPositions(nodeIds);
+    const results = await Promise.all(
+        nodeIds.map(async (nodeId) => {
+            try {
+                const pos = positions[nodeId];
+                await api(`/api/nodes/${nodeId}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({
+                        position: { x: Number(pos.x), y: Number(pos.y) },
+                        reason,
+                    }),
+                });
+                return true;
+            } catch (_error) {
+                return false;
+            }
+        })
+    );
+
+    const updated = results.filter(Boolean).length;
+    return { updated, failed: nodeIds.length - updated };
+}
+
+const tidyGraphButton = document.getElementById("tidy-graph");
+if (tidyGraphButton) {
+    tidyGraphButton.addEventListener("click", async () => {
+        if (!state.nodes.length) {
+            const msg = i18n ? i18n.t('messages.noNodesToTidy') : "No nodes to tidy.";
+            showMessage(msg, true);
+            return;
+        }
+
+        const previousSelectedNodeId = state.selectedNodeId;
+        const originalText = tidyGraphButton.textContent;
+        tidyGraphButton.disabled = true;
+        tidyGraphButton.textContent = i18n ? i18n.t('messages.tidying') : "整理中...";
+
+        try {
+            await stabilizeNetworkLayout();
+            const stats = await persistCurrentNodePositions("tidy graph layout in web ui");
+            await loadGraph({ preferredNodeId: previousSelectedNodeId });
+            network.fit({
+                animation: {
+                    duration: 420,
+                    easingFunction: "easeInOutQuad",
+                },
+            });
+
+            if (stats.failed > 0) {
+                const msg = i18n ? i18n.t('messages.layoutTidiedWithErrors', { failed: stats.failed }) : `Layout tidied, but ${stats.failed} node positions failed to save.`;
+                showMessage(msg, true);
+            } else {
+                const msg = i18n ? i18n.t('messages.layoutTidied', { count: stats.updated }) : `Layout tidied and saved (${stats.updated} nodes).`;
+                showMessage(msg);
+            }
+        } catch (error) {
+            showMessage(error.message, true);
+        } finally {
+            tidyGraphButton.disabled = false;
+            tidyGraphButton.textContent = originalText;
+        }
+    });
+}
+
 const deleteNodeButton = document.getElementById("delete-node");
 if (deleteNodeButton) {
     deleteNodeButton.addEventListener("click", async () => {
         if (!state.selectedNodeId) {
-            showMessage("请先选中一个节点", true);
+            const msg = i18n ? i18n.t('messages.noNodeSelected') : "Please select a node first.";
+            showMessage(msg, true);
             return;
         }
 
@@ -427,7 +702,8 @@ const deleteConnectionButton = document.getElementById("delete-connection");
 if (deleteConnectionButton) {
     deleteConnectionButton.addEventListener("click", async () => {
         if (!state.selectedConnectionId) {
-            showMessage("请先选中一条连接", true);
+            const msg = i18n ? i18n.t('messages.noConnectionSelected') : "Please select a connection first.";
+            showMessage(msg, true);
             return;
         }
 
@@ -447,26 +723,29 @@ const updateNodeColorButton = document.getElementById("update-node-color");
 if (updateNodeColorButton) {
     updateNodeColorButton.addEventListener("click", async () => {
         if (!state.selectedNodeId) {
-            showMessage("请先选中一个节点", true);
+            const msg = i18n ? i18n.t('messages.noNodeSelected') : "Please select a node first.";
+            showMessage(msg, true);
             return;
         }
 
         const color = document.getElementById("node-color").value;
         if (!isValidHexColor(color)) {
-            showMessage("节点颜色格式无效", true);
+            const msg = i18n ? i18n.t('messages.invalidColor') : "Node color must be a valid hex color.";
+            showMessage(msg, true);
             return;
         }
 
         try {
-            await api(`/api/nodes/${state.selectedNodeId}`, {
+            const nodeId = state.selectedNodeId;
+            await api(`/api/nodes/${nodeId}`, {
                 method: "PATCH",
                 body: JSON.stringify({
                     color,
                     reason: "update node color in web ui",
                 }),
             });
-            await loadGraph();
-            showMessage("已更新节点颜色");
+            await loadGraph({ preferredNodeId: nodeId });
+            showMessage("Updated selected node color.");
         } catch (error) {
             showMessage(error.message, true);
         }
@@ -481,7 +760,8 @@ if (graphSaveForm) {
         const name = input.value.trim();
 
         if (!name) {
-            showMessage("请输入快照名称", true);
+            const msg = i18n ? i18n.t('messages.snapshotNameRequired') : "Please enter a snapshot name.";
+            showMessage(msg, true);
             return;
         }
 
@@ -494,7 +774,9 @@ if (graphSaveForm) {
                 }),
             });
             await loadSavedGraphs(result.name);
-            showMessage(`已保存思考图: ${result.name}`);
+            const msg = i18n ? i18n.t('messages.graphSaved', { name: result.name }) : `Saved graph: ${result.name}`;
+            showMessage(msg);
+
         } catch (error) {
             showMessage(error.message, true);
         }
@@ -508,7 +790,8 @@ if (loadGraphButton) {
         const name = (select.value || "").trim();
 
         if (!name) {
-            showMessage("请先选择一个已保存思考图", true);
+            const msg = i18n ? i18n.t('messages.noGraphSelected') : "Please choose a saved graph first.";
+            showMessage(msg, true);
             return;
         }
 
@@ -521,7 +804,9 @@ if (loadGraphButton) {
                 }),
             });
             await loadGraph();
-            showMessage(`已加载思考图: ${result.name}`);
+            const msg = i18n ? i18n.t('messages.graphLoaded', { name: result.name }) : `Loaded graph: ${result.name}`;
+            showMessage(msg);
+
         } catch (error) {
             showMessage(error.message, true);
         }
@@ -535,11 +820,14 @@ if (deleteSavedGraphButton) {
         const name = (select.value || "").trim();
 
         if (!name) {
-            showMessage("请先选择一个已保存思考图", true);
+            const msg = i18n ? i18n.t('messages.noGraphSelected') : "Please choose a saved graph first.";
+            showMessage(msg, true);
             return;
         }
 
-        const confirmed = window.confirm(`确认删除已保存思考图“${name}”？`);
+        const confirmed = window.confirm(
+            i18n ? i18n.t('messages.confirmDelete', { name: name }) : `Delete saved graph "${name}"?`
+        );
         if (!confirmed) {
             return;
         }
@@ -553,7 +841,7 @@ if (deleteSavedGraphButton) {
                 }),
             });
             await loadSavedGraphs();
-            showMessage(`已删除思考图: ${result.name}`);
+            showMessage(`Deleted graph: ${result.name}`);
         } catch (error) {
             showMessage(error.message, true);
         }
@@ -563,7 +851,7 @@ if (deleteSavedGraphButton) {
 const clearGraphButton = document.getElementById("clear-graph");
 if (clearGraphButton) {
     clearGraphButton.addEventListener("click", async () => {
-        const confirmed = window.confirm("确认清空当前思考图？该操作会记录审计日志。");
+        const confirmed = window.confirm("Clear the current graph? This action will be recorded in audit logs.");
         if (!confirmed) {
             return;
         }
@@ -576,7 +864,7 @@ if (clearGraphButton) {
                 }),
             });
             await loadGraph();
-            showMessage(`已清空当前图: ${result.cleared_nodes} 节点 / ${result.cleared_connections} 连接`);
+            showMessage(`Cleared current graph: ${result.cleared_nodes} nodes / ${result.cleared_connections} connections`);
         } catch (error) {
             showMessage(error.message, true);
         }
@@ -660,7 +948,7 @@ if (refreshSavedButton) {
     refreshSavedButton.addEventListener("click", async () => {
         try {
             await loadSavedGraphs();
-            showMessage("已刷新已保存思考图列表");
+            showMessage("Saved graph list refreshed.");
         } catch (error) {
             showMessage(error.message, true);
         }
@@ -680,14 +968,14 @@ if (verifyAuditButton) {
             issuesEl.innerHTML = "";
 
             if (status.ok) {
-                badge.textContent = "通过";
+                badge.textContent = "PASSED";
                 badge.style.background = "#d7efe1";
                 badge.style.color = "#2d936c";
                 const item = document.createElement("li");
-                item.textContent = "所有节点与连接都具备审计链路";
+                item.textContent = "All nodes and connections have complete audit chains.";
                 issuesEl.appendChild(item);
             } else {
-                badge.textContent = "未通过";
+                badge.textContent = "FAILED";
                 badge.style.background = "#fde4df";
                 badge.style.color = "#ca553d";
                 for (const issue of status.issues || []) {
@@ -709,18 +997,18 @@ if (llmForm) {
 
         const prompt = document.getElementById("llm-prompt").value;
         const output = document.getElementById("llm-response");
-        output.textContent = "请求中...";
+        output.textContent = "Requesting...";
 
         try {
             const result = await api("/api/llm/chat", {
                 method: "POST",
                 body: JSON.stringify({
                     prompt,
-                    system_prompt: "你是观点结构化助手，输出简洁中文。",
+                    system_prompt: "You are a structured-thinking assistant. Answer concisely.",
                     temperature: 0.3,
                 }),
             });
-            output.textContent = result.response || "(空响应)";
+            output.textContent = result.response || "(empty response)";
         } catch (error) {
             output.textContent = error.message;
         }
@@ -731,7 +1019,7 @@ const llmReviewGraphButton = document.getElementById("llm-review-graph");
 if (llmReviewGraphButton) {
     llmReviewGraphButton.addEventListener("click", async () => {
         const output = document.getElementById("llm-review-response");
-        output.textContent = "审核中...";
+        output.textContent = "Reviewing...";
 
         try {
             const result = await api("/api/llm/review-graph", {
@@ -748,14 +1036,14 @@ if (llmReviewGraphButton) {
             for (const item of result.conflicts || []) {
                 const type = item.entity_type || "global";
                 const id = item.entity_id || "global";
-                const reason = item.reason || "未提供原因";
+                const reason = item.reason || "No reason provided.";
                 rows.push(`[${type}] ${id}: ${reason}`);
             }
 
             if (rows.length) {
                 output.textContent = rows.join("\n");
             } else {
-                output.textContent = result.response || "检测到冲突";
+                output.textContent = result.response || "Conflicts detected.";
             }
         } catch (error) {
             output.textContent = error.message;
@@ -772,17 +1060,19 @@ if (llmGenerateForm) {
         const output = document.getElementById("llm-generate-response");
 
         if (!topic) {
-            output.textContent = "请先输入主题。";
+            output.textContent = "Please enter a topic first.";
             return;
         }
 
-        const confirmed = window.confirm("该操作会覆盖当前思考图，未保存内容会丢失。是否继续？");
+        const confirmed = window.confirm(
+            "This will replace the current graph and discard unsaved changes. Continue?"
+        );
         if (!confirmed) {
-            output.textContent = "已取消。";
+            output.textContent = "Cancelled.";
             return;
         }
 
-        output.textContent = "生成中...";
+        output.textContent = "Generating...";
 
         try {
             const result = await api("/api/llm/generate-graph", {
@@ -796,13 +1086,13 @@ if (llmGenerateForm) {
             });
 
             if (!result.enabled) {
-                output.textContent = result.message || "LLM 后端不可用。";
+                output.textContent = result.message || "LLM backend is unavailable.";
                 return;
             }
 
             await loadGraph();
-            output.textContent = `已生成并覆盖当前图：${result.node_count} 节点 / ${result.connection_count} 连接`;
-            showMessage("LLM 已生成并覆盖当前思考图");
+            output.textContent = `Generated and replaced graph: ${result.node_count} nodes / ${result.connection_count} connections`;
+            showMessage("LLM generated and replaced the current graph.");
         } catch (error) {
             output.textContent = error.message;
         }
@@ -820,7 +1110,7 @@ if (refreshAllButton) {
     });
 }
 
-setColorInputValue("#157f83");
+setColorInputValue(DEFAULT_NODE_COLOR);
 
 loadGraph().catch((error) => {
     showMessage(error.message, true);
