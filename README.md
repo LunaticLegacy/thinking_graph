@@ -85,18 +85,6 @@ python main.py
 
 ### 📊 可视化论证网络
 
-```python
-from thinking_graph import GraphBuilder
-
-builder = GraphBuilder()
-builder.add_node("远程办公提升效率", confidence=0.85)
-builder.add_node("减少通勤时间", confidence=0.95)
-builder.connect("减少通勤时间", "远程办公提升效率", type="supports")
-
-graph = builder.build()
-graph.visualize()  # 生成交互式网络图
-```
-
 - **节点 (Node)**: 代表观点，支持置信度、标签、证据标注
 - **连接 (Connection)**: 五种关系类型：supports / opposes / relates / leads_to / derives_from
 - **交互式界面**: 拖拽布局、缩放导航、点击编辑
@@ -111,21 +99,6 @@ graph.visualize()  # 生成交互式网络图
 | OpenVINO | ⚡ | 🔒🔒🔒 | Intel NPU 优化 |
 
 ### 🔎 智能逻辑审计
-
-```python
-# AI 自动检查论证一致性
-review_result = graph.ai_review()
-# {
-#   "verdict": "CONFLICT",
-#   "conflicts": [
-#     {
-#       "entity_type": "connection",
-#       "entity_id": "conn_001",
-#       "reason": "同一节点对同时存在 supports 与 opposes 关系"
-#     }
-#   ]
-# }
-```
 
 内置审计规则：
 - ✅ 禁止空内容节点

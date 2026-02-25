@@ -84,18 +84,6 @@ Open your browser at `http://localhost:5000` and start building your first think
 
 ### 📊 Visual Argumentation Networks
 
-```python
-from thinking_graph import GraphBuilder
-
-builder = GraphBuilder()
-builder.add_node("Remote work boosts productivity", confidence=0.85)
-builder.add_node("Reduced commute time", confidence=0.95)
-builder.connect("Reduced commute time", "Remote work boosts productivity", type="supports")
-
-graph = builder.build()
-graph.visualize()  # Generate interactive network graph
-```
-
 - **Nodes**: Represent viewpoints with confidence scores, tags, and evidence
 - **Connections**: Five relationship types: supports / opposes / relates / leads_to / derives_from
 - **Interactive UI**: Drag-to-layout, zoom navigation, click-to-edit
@@ -110,21 +98,6 @@ graph.visualize()  # Generate interactive network graph
 | OpenVINO | ⚡ | 🔒🔒🔒 | Intel NPU optimized |
 
 ### 🔎 Intelligent Logic Auditing
-
-```python
-# AI automatically checks argument consistency
-review_result = graph.ai_review()
-# {
-#   "verdict": "CONFLICT",
-#   "conflicts": [
-#     {
-#       "entity_type": "connection",
-#       "entity_id": "conn_001",
-#       "reason": "Same node pair has both supports and opposes relationships"
-#     }
-#   ]
-# }
-```
 
 Built-in audit rules:
 - ✅ No empty content nodes
