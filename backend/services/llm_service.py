@@ -37,6 +37,11 @@ class LLMService:
         '否则输出 {"result":"CONFLICT","conflicts":[{"entity_type":"node|connection|global","entity_id":"id-or-global","reason":"..."}]}。'
         '冲突项必须引用输入中的节点或连接 id。'
     )
+    CHAT_GRAPH_SYSTEM_PROMPT = (
+        "你会在每次对话中收到当前思考图（JSON）。"
+        "回答时必须结合该思考图，不要忽略其中的节点和连接关系。"
+        "当用户问题与图中信息冲突时，先指出冲突，再给出建议。"
+    )
 
     def __init__(
         self,
@@ -136,10 +141,18 @@ class LLMService:
         except Exception as exc:
             self._disabled_reason = f"Failed to initialize {self.backend} backend: {exc}"
 
-    def ask(self, payload: LLMChatRequest) -> LLMChatResponse:
+    def ask(
+        self,
+        payload: LLMChatRequest,
+        graph_snapshot: GraphSnapshot | None = None,
+    ) -> LLMChatResponse:
         text = payload.prompt.strip()
         if not text:
             raise ValueError("`prompt` is required.")
+
+        request_payload = payload
+        if graph_snapshot is not None:
+            request_payload = self._attach_graph_context(payload, graph_snapshot)
 
         if not self.enabled:
             return LLMChatResponse(
@@ -151,9 +164,9 @@ class LLMService:
 
         try:
             if self.backend in API_BACKENDS:
-                answer = self._ask_api(payload)
+                answer = self._ask_api(request_payload)
             else:
-                answer = self._ask_local_runtime(payload)
+                answer = self._ask_local_runtime(request_payload)
         except Exception as exc:
             return LLMChatResponse(
                 enabled=False,
@@ -162,6 +175,67 @@ class LLMService:
             )
 
         return LLMChatResponse(enabled=True, model=self.model, response=answer)
+
+    def _attach_graph_context(
+        self,
+        payload: LLMChatRequest,
+        snapshot: GraphSnapshot,
+    ) -> LLMChatRequest:
+        graph_json = self._graph_snapshot_json(snapshot)
+        graph_block = (
+            "[CURRENT_THINKING_GRAPH_JSON]\n"
+            f"{graph_json}\n"
+            "[END_CURRENT_THINKING_GRAPH_JSON]\n"
+        )
+
+        merged_system_prompt = self.CHAT_GRAPH_SYSTEM_PROMPT
+        if payload.system_prompt:
+            merged_system_prompt = (
+                f"{payload.system_prompt.strip()}\n\n{self.CHAT_GRAPH_SYSTEM_PROMPT}"
+            )
+
+        merged_prompt = (
+            f"{payload.prompt.strip()}\n\n"
+            "请结合下面的当前思考图作答：\n"
+            f"{graph_block}"
+        )
+
+        return LLMChatRequest(
+            prompt=merged_prompt,
+            system_prompt=merged_system_prompt,
+            temperature=payload.temperature,
+            max_tokens=payload.max_tokens,
+        )
+
+    @staticmethod
+    def _graph_snapshot_json(snapshot: GraphSnapshot) -> str:
+        payload = {
+            "node_count": len(snapshot.nodes),
+            "connection_count": len(snapshot.connections),
+            "nodes": [
+                {
+                    "id": node.id,
+                    "summary": node.summary,
+                    "content": node.content,
+                    "confidence": node.confidence,
+                    "tags": node.tags,
+                    "evidence": node.evidence,
+                }
+                for node in snapshot.nodes
+            ],
+            "connections": [
+                {
+                    "id": conn.id,
+                    "source_id": conn.source_id,
+                    "target_id": conn.target_id,
+                    "conn_type": conn.conn_type,
+                    "description": conn.description,
+                    "strength": conn.strength,
+                }
+                for conn in snapshot.connections
+            ],
+        }
+        return json.dumps(payload, ensure_ascii=False)
 
     def _ask_api(self, payload: LLMChatRequest) -> str:
         assert self._client is not None

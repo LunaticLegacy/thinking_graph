@@ -236,7 +236,8 @@ def clear_graph():
 def llm_chat():
     payload = LLMChatRequest.from_mapping(payload_mapping())
     try:
-        answer = llm_service().ask(payload)
+        snapshot = graph_service().graph_snapshot()
+        answer = llm_service().ask(payload, graph_snapshot=snapshot)
     except ValueError as exc:
         return jsonify(to_json_ready(ErrorResponse(error=str(exc)))), 400
     except Exception as exc:
