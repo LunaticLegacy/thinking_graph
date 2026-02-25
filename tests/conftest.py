@@ -24,6 +24,30 @@ from datamodels.graph_models import (
 )
 
 
+def _create_test_llm_config() -> LLMConfig:
+    """Create a test LLM config (not a fixture, can be called directly)."""
+    return LLMConfig.from_sources(data={
+        "backend": "remote_api",
+        "remote_api": {
+            "api_key": "test-key",
+            "base_url": "https://test.api",
+            "model": "test-model",
+        },
+        "local_api": {
+            "api_key": "",
+            "base_url": "",
+            "model": "",
+        },
+        "local_runtime": {
+            "model": "",
+            "model_dir": "",
+            "npu_device": "",
+            "require_npu": False,
+            "onnx_provider": None,
+        },
+    })
+
+
 @pytest.fixture
 def temp_db_path() -> str:
     """Provide a temporary database file path."""
@@ -77,30 +101,23 @@ def sample_connection_payload() -> ConnectionCreatePayload:
 
 
 @pytest.fixture
-def mock_llm_config() -> LLMConfig:
-    """Return a mock LLM config for testing."""
-    return LLMConfig(
-        backend="remote_api",
-        remote_api={"api_key": "test-key", "base_url": "https://test.api", "model": "test-model"},
-        local_api={"api_key": "", "base_url": "", "model": ""},
-        local_runtime={"model": "", "model_dir": "", "npu_device": "", "require_npu": False, "onnx_provider": ""},
-    )
-
-
-@pytest.fixture
 def app_config(temp_db_path: str):
     """Create a test runtime config."""
+    from pathlib import Path
     from config import RuntimeConfig, ServerConfig, PathsConfig, DatabaseConfig
+    
+    project_root = Path(__file__).parent.parent
     
     return RuntimeConfig(
         server=ServerConfig(host="127.0.0.1", port=5001, debug=True, enable_cors=True),
         paths=PathsConfig(
-            template_dir="templates",
-            static_dir="static",
+            project_root=project_root,
+            template_dir=str(project_root / "templates"),
+            static_dir=str(project_root / "static"),
             data_dir="data",
             project_db_path=temp_db_path,
             default_db_path=temp_db_path,
         ),
         database=DatabaseConfig(db_path=temp_db_path),
-        llm=mock_llm_config(),
+        llm=_create_test_llm_config(),
     )

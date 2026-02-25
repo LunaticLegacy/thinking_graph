@@ -52,9 +52,10 @@ class TestAppRoutes:
     """Test suite for HTTP routes."""
 
     def test_index_route(self, test_client):
-        """Should serve the main page."""
+        """Should serve the main page or return 404 if template missing."""
         response = test_client.get("/")
-        assert response.status_code in (200, 404)  # 404 if template missing is ok for smoke test
+        # 200 if template exists, 404 if missing - both are acceptable for smoke test
+        assert response.status_code in (200, 404)
 
     def test_api_nodes_get(self, test_client):
         """Should handle GET /api/nodes."""
@@ -71,13 +72,22 @@ class TestFallbackBehavior:
 
     def test_fallback_in_dev_mode(self, tmp_path):
         """Should fallback to temp db in dev mode when primary fails."""
+        from pathlib import Path
         from web import create_app
         from config import RuntimeConfig, ServerConfig, PathsConfig, DatabaseConfig, LLMConfig
+        
+        project_root = Path(__file__).parent.parent
+        
+        llm_config = LLMConfig.from_sources(data={
+            "backend": "remote_api",
+            "remote_api": {"api_key": "", "base_url": "", "model": ""},
+        })
         
         # Use a read-only directory to simulate failure
         config = RuntimeConfig(
             server=ServerConfig(host="127.0.0.1", port=5001, debug=True, enable_cors=True),
             paths=PathsConfig(
+                project_root=project_root,
                 template_dir="templates",
                 static_dir="static",
                 data_dir=str(tmp_path),
@@ -85,12 +95,7 @@ class TestFallbackBehavior:
                 default_db_path=str(tmp_path / "test.db"),
             ),
             database=DatabaseConfig(db_path=str(tmp_path / "test.db")),
-            llm=LLMConfig(
-                backend="remote_api",
-                remote_api={"api_key": "", "base_url": "", "model": ""},
-                local_api={"api_key": "", "base_url": "", "model": ""},
-                local_runtime={"model": "", "model_dir": "", "npu_device": "", "require_npu": False, "onnx_provider": ""},
-            ),
+            llm=llm_config,
         )
         
         app = create_app(config)
