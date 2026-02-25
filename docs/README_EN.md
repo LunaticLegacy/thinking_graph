@@ -58,6 +58,8 @@ source .venv/bin/activate  # Linux/Mac
 
 # Install dependencies
 pip install -r requirements.txt
+# If you want to run a Language Model locally
+# pip install -r ./requirements-local-llm.txt
 ```
 
 ### Configuration

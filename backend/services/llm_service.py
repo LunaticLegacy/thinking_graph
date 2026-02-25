@@ -80,7 +80,8 @@ class LLMService:
         "Output JSON only; no markdown or extra explanation. "
         'Output schema: {"summary":"...","nodes":[...],"connections":[...]}. '
         "Include a top-level summary in 1-3 sentences. "
-        "Each node must include id and content. "
+        "Each node must include id, content, and confidence (0.0-1.0). "
+        "Node confidence values must be meaningfully different across nodes; do not output all identical values. "
         "Each connection must include source_id, target_id, conn_type. "
         'Each connection must include a non-empty "description" field. '
         "conn_type must be one of: supports / opposes / relates / leads_to / derives_from. "
@@ -153,12 +154,30 @@ class LLMService:
         normalized = self._normalize_language(language)
         if normalized == "en":
             base_prompt = self.GRAPH_GENERATE_SYSTEM_PROMPT_EN
+            summary_rule = 'Always include a top-level "summary" field with 1-3 sentences.'
+            connection_rule = 'Each connection must include a non-empty "description" field.'
+            confidence_rule = (
+                "Node confidence values must not all be identical. "
+                "Provide varied confidence values in the range [0.0, 1.0]."
+            )
         else:
             base_prompt = self.GRAPH_GENERATE_SYSTEM_PROMPT
+            summary_rule = (
+                "\u5fc5\u987b\u5305\u542b\u9876\u5c42\u5b57\u6bb5 `summary`\uff0c"
+                "\u4f7f\u7528 1-3 \u53e5\u8bdd\u6982\u62ec\u601d\u8003\u56fe\u3002"
+            )
+            connection_rule = (
+                "\u6bcf\u6761\u8fde\u63a5\u90fd\u5fc5\u987b\u5305\u542b\u975e\u7a7a\u5b57\u6bb5 `description`\u3002"
+            )
+            confidence_rule = (
+                "\u8282\u70b9 `confidence` \u9700\u4fdd\u6301\u5dee\u5f02\uff08\u4e0d\u80fd\u5168\u90e8\u76f8\u540c\uff09\uff0c"
+                "\u53d6\u503c\u8303\u56f4\u4e3a [0.0, 1.0]\u3002"
+            )
         return (
             f"{base_prompt}\n"
-            'Always include a top-level "summary" field with 1-3 sentences.\n'
-            'Each connection must include a non-empty "description" field.'
+            f"{summary_rule}\n"
+            f"{connection_rule}\n"
+            f"{confidence_rule}"
         )
 
     def _thinking_graph_paradigm(self, language: str) -> tuple[str, ...]:
@@ -465,13 +484,15 @@ class LLMService:
                 "Requirements:\n"
                 f"1. Node count between 3 and {max_nodes}.\n"
                 "2. Nodes should be concise and debatable; content must not be empty.\n"
-                f"3. conn_type can only be: {connection_types}.\n"
-                "4. Connections are directed and self-loop is forbidden.\n"
-                "5. source_id and target_id must reference defined nodes.\n"
-                "6. Each connection must include a concise, non-empty `description` explaining why it holds.\n"
-                "7. Keep structure clear; sparse connections are acceptable when appropriate.\n"
-                "8. Include a top-level summary in field `summary` (1-3 sentences).\n"
-                '9. Output JSON only: {"summary":"...","nodes":[...],"connections":[...]}\n'
+                "3. Each node must include `confidence` in [0.0, 1.0].\n"
+                "4. Node confidence values must differ across nodes; do not output all equal numbers.\n"
+                f"5. conn_type can only be: {connection_types}.\n"
+                "6. Connections are directed and self-loop is forbidden.\n"
+                "7. source_id and target_id must reference defined nodes.\n"
+                "8. Each connection must include a concise, non-empty `description` explaining why it holds.\n"
+                "9. Keep structure clear; sparse connections are acceptable when appropriate.\n"
+                "10. Include a top-level summary in field `summary` (1-3 sentences).\n"
+                '11. Output JSON only: {"summary":"...","nodes":[...],"connections":[...]}\n'
             )
 
         return (
@@ -644,6 +665,7 @@ class LLMService:
 
         if not nodes:
             return [], []
+        self._ensure_generated_confidence_variation(nodes, language=language)
 
         node_ids = {node["id"] for node in nodes}
         node_by_id = {node["id"]: node for node in nodes}
@@ -698,6 +720,40 @@ class LLMService:
             )
 
         return nodes, connections
+
+    def _ensure_generated_confidence_variation(
+        self,
+        nodes: list[dict[str, Any]],
+        *,
+        language: str,
+    ) -> None:
+        _ = language
+        if len(nodes) < 2:
+            return
+
+        rounded_values = {
+            round(self._to_float(node.get("confidence"), 1.0), 3)
+            for node in nodes
+        }
+        if len(rounded_values) >= 2:
+            return
+
+        base = self._clamp_float(
+            self._to_float(nodes[0].get("confidence"), 0.7),
+            0.0,
+            1.0,
+        )
+        # Build a small descending spread around the original confidence
+        # so generated nodes are not assigned identical confidence values.
+        span = min(0.4, 0.1 * max(len(nodes) - 1, 1))
+        center = self._clamp_float(base, span / 2, 1.0 - span / 2)
+        start = center + span / 2
+        end = center - span / 2
+        step = (start - end) / max(len(nodes) - 1, 1)
+
+        for index, node in enumerate(nodes):
+            value = self._clamp_float(start - index * step, 0.0, 1.0)
+            node["confidence"] = round(value, 3)
 
     def review_graph(self, snapshot: GraphSnapshot, *, language: str = "zh") -> LLMGraphReviewResponse:
         normalized_language = self._normalize_language(language)

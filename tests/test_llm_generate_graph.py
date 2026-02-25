@@ -96,3 +96,26 @@ def test_generate_graph_route_fills_missing_connection_description(app_config: R
     description = str(connections[0].get("description", "")).strip()
     assert description
     assert description.lower() not in {"none", "n/a", "na", "null", "unknown", "tbd"}
+
+
+def test_normalize_generated_payload_enforces_confidence_variation():
+    service = LLMService.__new__(LLMService)
+    payload = {
+        "nodes": [
+            {"id": "n1", "content": "Point A", "confidence": 0.9},
+            {"id": "n2", "content": "Point B", "confidence": 0.9},
+            {"id": "n3", "content": "Point C", "confidence": 0.9},
+        ],
+        "connections": [],
+    }
+
+    nodes, _ = service._normalize_generated_graph_payload(
+        payload,
+        max_nodes=10,
+        language="en",
+    )
+
+    confidences = [float(node["confidence"]) for node in nodes]
+    assert len(confidences) == 3
+    assert all(0.0 <= value <= 1.0 for value in confidences)
+    assert len({round(value, 3) for value in confidences}) >= 2
