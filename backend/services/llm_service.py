@@ -6,6 +6,12 @@ import json
 import re
 from typing import Any
 
+from backend.i18n import (
+    get_llm_prompt_items,
+    get_llm_prompt_text,
+    normalize_prompt_language,
+    render_llm_prompt_template,
+)
 from config import LLMConfig
 from datamodels.ai_llm_models import (
     LLMChatRequest,
@@ -21,72 +27,6 @@ RUNTIME_BACKENDS = {"onnxruntime", "openvino"}
 
 
 class LLMService:
-    THINKING_GRAPH_PARADIGM: tuple[str, ...] = (
-        "节点(node)必须是明确观点，node.content 不能为空。",
-        "连接(connection)必须连接两个不同节点，禁止自环(source_id == target_id)。",
-        "连接类型必须属于: supports / opposes / relates / leads_to / derives_from。",
-        "连接语义: supports=支持，opposes=反驳，relates=相关，leads_to=导向，derives_from=推导来源。",
-        "连接的 source_id 与 target_id 必须都存在于节点集合中。",
-        "同一方向的两个节点不应同时被 supports 与 opposes 关系并存。",
-    )
-
-    REVIEW_SYSTEM_PROMPT = (
-        '你是思考图审计器。'
-        '你只能输出 JSON，禁止输出 markdown、解释文字或多余字段。'
-        '当思考图满足范式时输出 {"result":"OK"}。'
-        '否则输出 {"result":"CONFLICT","conflicts":[{"entity_type":"node|connection|global","entity_id":"id-or-global","reason":"..."}]}。'
-        '冲突项必须引用输入中的节点或连接 id。'
-    )
-    CHAT_GRAPH_SYSTEM_PROMPT = (
-        "你会在每次对话中收到当前思考图（JSON）。"
-        "回答时必须结合该思考图，不要忽略其中的节点和连接关系。"
-        "当用户问题与图中信息冲突时，先指出冲突，再给出建议。"
-    )
-    GRAPH_GENERATE_SYSTEM_PROMPT = (
-        "你是思考图生成器。"
-        "你只能输出 JSON，禁止输出 markdown、解释文字或多余字段。"
-        '输出格式必须是 {"nodes":[...],"connections":[...]}。'
-        "每个节点必须有 id 与 content。"
-        "每条连接必须有 source_id、target_id、conn_type。"
-        "连接类型仅可使用: supports / opposes / relates / leads_to / derives_from。"
-        "禁止自环；source_id 与 target_id 必须引用已存在节点。"
-    )
-
-    THINKING_GRAPH_PARADIGM_EN: tuple[str, ...] = (
-        "Each node must contain a clear claim; node.content must not be empty.",
-        "Each connection must link two different nodes; self-loop is forbidden (source_id != target_id).",
-        "Each connection type must be one of: supports / opposes / relates / leads_to / derives_from.",
-        "Connection semantics: supports=supports, opposes=opposes, relates=related, leads_to=leads to, derives_from=derives from.",
-        "Both source_id and target_id of each connection must refer to existing node ids.",
-        "For the same directed pair, supports and opposes must not coexist.",
-    )
-
-    REVIEW_SYSTEM_PROMPT_EN = (
-        "You are a thinking-graph auditor. "
-        "Output JSON only; no markdown or extra explanation. "
-        'If valid, output {"result":"OK"}. '
-        'If invalid, output {"result":"CONFLICT","conflicts":[{"entity_type":"node|connection|global","entity_id":"id-or-global","reason":"..."}]}. '
-        "Each conflict must reference an id from input or use global."
-    )
-
-    CHAT_GRAPH_SYSTEM_PROMPT_EN = (
-        "You will receive the current thinking graph (JSON) in each request. "
-        "Your answer must use node and connection information from that graph. "
-        "If user input conflicts with graph facts, explain the conflict first, then provide suggestions."
-    )
-
-    GRAPH_GENERATE_SYSTEM_PROMPT_EN = (
-        "You are a thinking-graph generator. "
-        "Output JSON only; no markdown or extra explanation. "
-        'Output schema: {"summary":"...","nodes":[...],"connections":[...]}. '
-        "Include a top-level summary in 1-3 sentences. "
-        "Each node must include id, content, and confidence (0.0-1.0). "
-        "Node confidence values must be meaningfully different across nodes; do not output all identical values. "
-        "Each connection must include source_id, target_id, conn_type. "
-        'Each connection must include a non-empty "description" field. '
-        "conn_type must be one of: supports / opposes / relates / leads_to / derives_from. "
-        "No self-loop; source_id and target_id must reference existing nodes."
-    )
 
     def __init__(
         self,
@@ -135,44 +75,19 @@ class LLMService:
 
     @staticmethod
     def _normalize_language(language: str | None) -> str:
-        candidate = (language or "zh").strip().lower()
-        return "en" if candidate == "en" else "zh"
+        return normalize_prompt_language(language)
 
     def _review_system_prompt(self, language: str) -> str:
-        normalized = self._normalize_language(language)
-        if normalized == "en":
-            return self.REVIEW_SYSTEM_PROMPT_EN
-        return self.REVIEW_SYSTEM_PROMPT
+        return get_llm_prompt_text(language, "review_system_prompt")
 
     def _chat_graph_system_prompt(self, language: str) -> str:
-        normalized = self._normalize_language(language)
-        if normalized == "en":
-            return self.CHAT_GRAPH_SYSTEM_PROMPT_EN
-        return self.CHAT_GRAPH_SYSTEM_PROMPT
+        return get_llm_prompt_text(language, "chat_graph_system_prompt")
 
     def _graph_generate_system_prompt(self, language: str) -> str:
-        normalized = self._normalize_language(language)
-        if normalized == "en":
-            base_prompt = self.GRAPH_GENERATE_SYSTEM_PROMPT_EN
-            summary_rule = 'Always include a top-level "summary" field with 1-3 sentences.'
-            connection_rule = 'Each connection must include a non-empty "description" field.'
-            confidence_rule = (
-                "Node confidence values must not all be identical. "
-                "Provide varied confidence values in the range [0.0, 1.0]."
-            )
-        else:
-            base_prompt = self.GRAPH_GENERATE_SYSTEM_PROMPT
-            summary_rule = (
-                "\u5fc5\u987b\u5305\u542b\u9876\u5c42\u5b57\u6bb5 `summary`\uff0c"
-                "\u4f7f\u7528 1-3 \u53e5\u8bdd\u6982\u62ec\u601d\u8003\u56fe\u3002"
-            )
-            connection_rule = (
-                "\u6bcf\u6761\u8fde\u63a5\u90fd\u5fc5\u987b\u5305\u542b\u975e\u7a7a\u5b57\u6bb5 `description`\u3002"
-            )
-            confidence_rule = (
-                "\u8282\u70b9 `confidence` \u9700\u4fdd\u6301\u5dee\u5f02\uff08\u4e0d\u80fd\u5168\u90e8\u76f8\u540c\uff09\uff0c"
-                "\u53d6\u503c\u8303\u56f4\u4e3a [0.0, 1.0]\u3002"
-            )
+        base_prompt = get_llm_prompt_text(language, "graph_generate_system_prompt_base")
+        summary_rule = get_llm_prompt_text(language, "graph_generate_system_summary_rule")
+        connection_rule = get_llm_prompt_text(language, "graph_generate_system_connection_rule")
+        confidence_rule = get_llm_prompt_text(language, "graph_generate_system_confidence_rule")
         return (
             f"{base_prompt}\n"
             f"{summary_rule}\n"
@@ -181,10 +96,7 @@ class LLMService:
         )
 
     def _thinking_graph_paradigm(self, language: str) -> tuple[str, ...]:
-        normalized = self._normalize_language(language)
-        if normalized == "en":
-            return self.THINKING_GRAPH_PARADIGM_EN
-        return self.THINKING_GRAPH_PARADIGM
+        return get_llm_prompt_items(language, "thinking_graph_paradigm")
 
     def _init_api_backend(
         self,
@@ -293,11 +205,7 @@ class LLMService:
                 f"{payload.system_prompt.strip()}\n\n{self._chat_graph_system_prompt(language)}"
             )
 
-        graph_instruction = (
-            "Please answer based on the current thinking graph below:\n"
-            if language == "en"
-            else "请结合下面的当前思考图作答：\n"
-        )
+        graph_instruction = get_llm_prompt_text(language, "attach_graph_instruction")
         merged_prompt = f"{payload.prompt.strip()}\n\n{graph_instruction}{graph_block}"
 
         return LLMChatRequest(
@@ -477,35 +385,12 @@ class LLMService:
     def _build_generate_graph_prompt(self, topic: str, *, max_nodes: int, language: str = "zh") -> str:
         connection_types = " / ".join(sorted(ConnectionType.values()))
         normalized_language = self._normalize_language(language)
-        if normalized_language == "en":
-            return (
-                "Generate a thinking graph for the topic below.\n"
-                f"Topic: {topic}\n\n"
-                "Requirements:\n"
-                f"1. Node count between 3 and {max_nodes}.\n"
-                "2. Nodes should be concise and debatable; content must not be empty.\n"
-                "3. Each node must include `confidence` in [0.0, 1.0].\n"
-                "4. Node confidence values must differ across nodes; do not output all equal numbers.\n"
-                f"5. conn_type can only be: {connection_types}.\n"
-                "6. Connections are directed and self-loop is forbidden.\n"
-                "7. source_id and target_id must reference defined nodes.\n"
-                "8. Each connection must include a concise, non-empty `description` explaining why it holds.\n"
-                "9. Keep structure clear; sparse connections are acceptable when appropriate.\n"
-                "10. Include a top-level summary in field `summary` (1-3 sentences).\n"
-                '11. Output JSON only: {"summary":"...","nodes":[...],"connections":[...]}\n'
-            )
-
-        return (
-            "请围绕下列主题生成思考图。\n"
-            f"主题: {topic}\n\n"
-            "要求:\n"
-            f"1. 节点数量 3 到 {max_nodes} 之间。\n"
-            "2. 节点要简洁、可辩论，content 不能为空。\n"
-            f"3. conn_type 只允许 {connection_types}。\n"
-            "4. 连接必须是有向边，且禁止自环。\n"
-            "5. source_id 和 target_id 必须引用已定义节点。\n"
-            "6. 如有必要可生成较少连接，但需保证图结构清晰。\n"
-            '7. 只输出 JSON 对象: {"nodes":[...],"connections":[...]}\n'
+        return render_llm_prompt_template(
+            normalized_language,
+            "generate_graph_prompt_template",
+            topic=topic,
+            max_nodes=max_nodes,
+            connection_types=connection_types,
         )
 
     def _resolve_generated_graph_summary(
@@ -587,8 +472,8 @@ class LLMService:
         language: str,
     ) -> str:
         normalized_language = self._normalize_language(language)
-        source_fallback = "source" if normalized_language == "en" else "源节点"
-        target_fallback = "target" if normalized_language == "en" else "目标节点"
+        source_fallback = "source" if normalized_language == "en" else "\u6e90\u8282\u70b9"
+        target_fallback = "target" if normalized_language == "en" else "\u76ee\u6807\u8282\u70b9"
         source_text = self._node_hint_text(source_node) or source_fallback
         target_text = self._node_hint_text(target_node) or target_fallback
 
@@ -603,11 +488,11 @@ class LLMService:
             return templates.get(conn_type, templates[ConnectionType.RELATES.value])
 
         templates = {
-            ConnectionType.SUPPORTS.value: f"{source_text} 支持 {target_text}。",
-            ConnectionType.OPPOSES.value: f"{source_text} 反驳 {target_text}。",
-            ConnectionType.RELATES.value: f"{source_text} 与 {target_text} 相关。",
-            ConnectionType.LEADS_TO.value: f"{source_text} 可能导致 {target_text}。",
-            ConnectionType.DERIVES_FROM.value: f"{source_text} 源自 {target_text}。",
+            ConnectionType.SUPPORTS.value: f"{source_text} \u652f\u6301 {target_text}\u3002",
+            ConnectionType.OPPOSES.value: f"{source_text} \u53cd\u5bf9 {target_text}\u3002",
+            ConnectionType.RELATES.value: f"{source_text} \u4e0e {target_text} \u76f8\u5173\u3002",
+            ConnectionType.LEADS_TO.value: f"{source_text} \u53ef\u80fd\u5bfc\u81f4 {target_text}\u3002",
+            ConnectionType.DERIVES_FROM.value: f"{source_text} \u6e90\u81ea {target_text}\u3002",
         }
         return templates.get(conn_type, templates[ConnectionType.RELATES.value])
 
@@ -834,23 +719,11 @@ class LLMService:
         }
 
         graph_json = json.dumps(graph_payload, ensure_ascii=False)
-        if normalized_language == "en":
-            return (
-                "Audit the thinking graph according to the paradigm below.\n"
-                'If valid, return JSON: {"result":"OK"}.\n'
-                'If invalid, return JSON: {"result":"CONFLICT","conflicts":[...]}.\n'
-                "\n"
-                f"Paradigm:\n{paradigm_text}\n\n"
-                f"Thinking graph JSON:\n{graph_json}\n"
-            )
-
-        return (
-            "请按下列范式审核思考图。\n"
-            '若满足范式，返回 JSON: {"result":"OK"}\n'
-            '若不满足，返回 JSON: {"result":"CONFLICT","conflicts":[...]}。\n'
-            "\n"
-            f"范式:\n{paradigm_text}\n\n"
-            f"思考图JSON:\n{graph_json}\n"
+        return render_llm_prompt_template(
+            normalized_language,
+            "review_prompt_template",
+            paradigm_text=paradigm_text,
+            graph_json=graph_json,
         )
 
     def _rule_based_conflicts(
@@ -873,11 +746,13 @@ class LLMService:
                 "Both supports and opposes exist for the same directed pair: {source} -> {target}"
             )
         else:
-            node_empty_reason = "节点 content 为空。"
-            self_loop_reason = "连接存在自环(source_id == target_id)。"
-            invalid_node_ref_reason = "连接引用了不存在的节点。"
-            invalid_conn_type_prefix = "连接类型无效"
-            contradictory_reason_template = "同一方向节点同时存在 supports 与 opposes 关系: {source} -> {target}"
+            node_empty_reason = "\u8282\u70b9 content \u4e3a\u7a7a\u3002"
+            self_loop_reason = "\u8fde\u63a5\u5b58\u5728\u81ea\u73af (source_id == target_id)\u3002"
+            invalid_node_ref_reason = "\u8fde\u63a5\u5f15\u7528\u4e86\u4e0d\u5b58\u5728\u7684\u8282\u70b9 id\u3002"
+            invalid_conn_type_prefix = "\u8fde\u63a5\u7c7b\u578b\u65e0\u6548"
+            contradictory_reason_template = (
+                "\u540c\u4e00\u65b9\u5411\u8282\u70b9\u540c\u65f6\u5b58\u5728 supports \u4e0e opposes \u5173\u7cfb: {source} -> {target}"
+            )
 
         for node in snapshot.nodes:
             if not node.content.strip():
@@ -961,7 +836,11 @@ class LLMService:
 
         conflicts_raw = payload.get("conflicts")
         conflicts: list[LLMGraphConflict] = []
-        default_reason = "No reason provided." if normalized_language == "en" else "未提供原因。"
+        default_reason = (
+            "No reason provided."
+            if normalized_language == "en"
+            else "\u672a\u63d0\u4f9b\u539f\u56e0\u3002"
+        )
 
         if isinstance(conflicts_raw, list):
             for item in conflicts_raw:
@@ -1038,7 +917,7 @@ class LLMService:
         if lowered == "ok":
             return []
 
-        if "conflict" in lowered or "冲突" in text or "无效" in text:
+        if "conflict" in lowered or "\u51b2\u7a81" in text or "\u65e0\u6548" in text:
             return [
                 LLMGraphConflict(
                     entity_type="global",
@@ -1056,7 +935,11 @@ class LLMService:
         language: str = "zh",
     ) -> list[LLMGraphConflict]:
         normalized_language = "en" if (language or "").strip().lower() == "en" else "zh"
-        default_reason = "No reason provided." if normalized_language == "en" else "未提供原因。"
+        default_reason = (
+            "No reason provided."
+            if normalized_language == "en"
+            else "\u672a\u63d0\u4f9b\u539f\u56e0\u3002"
+        )
 
         merged: list[LLMGraphConflict] = []
         seen: set[tuple[str, str, str]] = set()

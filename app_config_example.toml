@@ -12,11 +12,11 @@ template_dir = "templates"
 static_dir = "static"
 data_dir = "data"
 project_db_path = "data/thinking_graph.db"
-# 默认数据库路径，如果为空则使用项目数据库
+# 备用数据库路径（仅作为兜底保留，不作为主连接默认值）
 default_db_path = ""
 
 [database]
-# 数据库连接配置，如果为空则使用默认数据库
+# 数据库连接配置；为空时默认使用 [paths].project_db_path
 db_path = ""
 
 [llm]

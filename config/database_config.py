@@ -21,7 +21,9 @@ class DatabaseConfig:
         data: Mapping[str, object] | None = None,
     ) -> "DatabaseConfig":
         section = data or {}
-        default_path_raw = _to_str(section.get("db_path"), paths.default_db_path)
+        # Prefer project database by default. `default_db_path` should not
+        # become the primary database unless explicitly wired elsewhere.
+        default_path_raw = _to_str(section.get("db_path"), paths.project_db_path)
 
         db_path_raw = os.getenv("THINKING_GRAPH_DB", default_path_raw)
         db_path = _resolve_path(db_path_raw, paths.project_root)

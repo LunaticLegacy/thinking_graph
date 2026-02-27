@@ -1,0 +1,40 @@
+{
+  "zh": {
+    "thinking_graph_paradigm": [
+      "节点(node)必须是明确观点，node.content 不能为空。",
+      "连接(connection)必须连接两个不同节点，禁止自环(source_id == target_id)。",
+      "连接类型必须属于: supports / opposes / relates / leads_to / derives_from。",
+      "连接语义: supports=支持，opposes=反驳，relates=相关，leads_to=导向，derives_from=推导来源。",
+      "连接的 source_id 与 target_id 必须都存在于节点集合中。",
+      "同一方向的两个节点不应同时被 supports 与 opposes 关系并存。"
+    ],
+    "review_system_prompt": "你是思考图审计器。你只能输出 JSON，禁止输出 markdown、解释文字或多余字段。当思考图满足范式时输出 {\"result\":\"OK\"}。否则输出 {\"result\":\"CONFLICT\",\"conflicts\":[{\"entity_type\":\"node|connection|global\",\"entity_id\":\"id-or-global\",\"reason\":\"...\"}]}。冲突项必须引用输入中的节点或连接 id。",
+    "chat_graph_system_prompt": "你会在每次对话中收到当前思考图（JSON）。回答时必须结合该思考图，不要忽略其中的节点和连接关系。当用户问题与图中信息冲突时，先指出冲突，再给出建议。",
+    "graph_generate_system_prompt_base": "你是思考图生成器。你只能输出 JSON，禁止输出 markdown、解释文字或多余字段。输出格式必须是 {\"nodes\":[...],\"connections\":[...]}。每个节点必须有 id 与 content。每条连接必须有 source_id、target_id、conn_type。连接类型仅可使用: supports / opposes / relates / leads_to / derives_from。禁止自环，source_id 与 target_id 必须引用已存在节点。",
+    "graph_generate_system_summary_rule": "必须包含顶层字段 `summary`，使用 1-3 句话概括思考图。",
+    "graph_generate_system_connection_rule": "每条连接都必须包含非空字段 `description`。",
+    "graph_generate_system_confidence_rule": "节点 `confidence` 需保持差异（不能全部相同），取值范围为 [0.0, 1.0]。",
+    "attach_graph_instruction": "请结合下面的当前思考图作答：\n",
+    "generate_graph_prompt_template": "请围绕下列主题生成思考图。\n主题: {topic}\n\n要求:\n1. 节点数量 3 到 {max_nodes} 之间。\n2. 节点要简洁、可辩论，content 不能为空。\n3. 每个节点必须包含 `confidence`，且在 [0.0, 1.0]。\n4. 节点 confidence 不可全部相同，需有差异。\n5. conn_type 仅允许: {connection_types}。\n6. 连接必须有方向，且禁止自环。\n7. source_id 和 target_id 必须引用已定义节点。\n8. 每条连接必须有简洁且非空的 `description` 字段。\n9. 结构需清晰；必要时可以连接较少。\n10. 顶层必须包含 `summary` 字段（1-3 句）。\n11. 只输出 JSON: {{\"summary\":\"...\",\"nodes\":[...],\"connections\":[...]}}\n",
+    "review_prompt_template": "请按下列范式审核思考图。\n若满足，返回 JSON: {{\"result\":\"OK\"}}。\n若不满足，返回 JSON: {{\"result\":\"CONFLICT\",\"conflicts\":[...]}}。\n\n范式:\n{paradigm_text}\n\n思考图 JSON:\n{graph_json}\n"
+  },
+  "en": {
+    "thinking_graph_paradigm": [
+      "Each node must contain a clear claim; node.content must not be empty.",
+      "Each connection must link two different nodes; self-loop is forbidden (source_id != target_id).",
+      "Each connection type must be one of: supports / opposes / relates / leads_to / derives_from.",
+      "Connection semantics: supports=supports, opposes=opposes, relates=related, leads_to=leads to, derives_from=derives from.",
+      "Both source_id and target_id of each connection must refer to existing node ids.",
+      "For the same directed pair, supports and opposes must not coexist."
+    ],
+    "review_system_prompt": "You are a thinking-graph auditor. Output JSON only; no markdown or extra explanation. If valid, output {\"result\":\"OK\"}. If invalid, output {\"result\":\"CONFLICT\",\"conflicts\":[{\"entity_type\":\"node|connection|global\",\"entity_id\":\"id-or-global\",\"reason\":\"...\"}]}. Each conflict must reference an id from input or use global.",
+    "chat_graph_system_prompt": "You will receive the current thinking graph (JSON) in each request. Your answer must use node and connection information from that graph. If user input conflicts with graph facts, explain the conflict first, then provide suggestions.",
+    "graph_generate_system_prompt_base": "You are a thinking-graph generator. Output JSON only; no markdown or extra explanation. Output schema: {\"summary\":\"...\",\"nodes\":[...],\"connections\":[...]}. Include a top-level summary in 1-3 sentences. Each node must include id, content, and confidence (0.0-1.0). Node confidence values must be meaningfully different across nodes; do not output all identical values. Each connection must include source_id, target_id, conn_type. Each connection must include a non-empty \"description\" field. conn_type must be one of: supports / opposes / relates / leads_to / derives_from. No self-loop; source_id and target_id must reference existing nodes.",
+    "graph_generate_system_summary_rule": "Always include a top-level \"summary\" field with 1-3 sentences.",
+    "graph_generate_system_connection_rule": "Each connection must include a non-empty \"description\" field.",
+    "graph_generate_system_confidence_rule": "Node confidence values must not all be identical. Provide varied confidence values in the range [0.0, 1.0].",
+    "attach_graph_instruction": "Please answer based on the current thinking graph below:\n",
+    "generate_graph_prompt_template": "Generate a thinking graph for the topic below.\nTopic: {topic}\n\nRequirements:\n1. Node count between 3 and {max_nodes}.\n2. Nodes should be concise and debatable; content must not be empty.\n3. Each node must include `confidence` in [0.0, 1.0].\n4. Node confidence values must differ across nodes; do not output all equal numbers.\n5. conn_type can only be: {connection_types}.\n6. Connections are directed and self-loop is forbidden.\n7. source_id and target_id must reference defined nodes.\n8. Each connection must include a concise, non-empty `description` explaining why it holds.\n9. Keep structure clear; sparse connections are acceptable when appropriate.\n10. Include a top-level summary in field `summary` (1-3 sentences).\n11. Output JSON only: {{\"summary\":\"...\",\"nodes\":[...],\"connections\":[...]}}\n",
+    "review_prompt_template": "Audit the thinking graph according to the paradigm below.\nIf valid, return JSON: {{\"result\":\"OK\"}}.\nIf invalid, return JSON: {{\"result\":\"CONFLICT\",\"conflicts\":[...]}}.\n\nParadigm:\n{paradigm_text}\n\nThinking graph JSON:\n{graph_json}\n"
+  }
+}
