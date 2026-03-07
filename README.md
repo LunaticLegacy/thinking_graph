@@ -83,6 +83,10 @@ python main.py
 
 打开浏览器访问 `http://localhost:5000`，开始构建你的第一张思维图！
 
+## Production Deployment
+
+For container deployment and multi-user isolation setup, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ---
 
 ## 🎯 核心特性

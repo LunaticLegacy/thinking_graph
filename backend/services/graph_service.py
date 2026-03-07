@@ -59,18 +59,28 @@ class GraphService:
     def __init__(self, repository: SQLiteRepository) -> None:
         self.repository = repository
 
-    def list_nodes(self, include_deleted: bool = False) -> list[Node]:
-        query = "SELECT * FROM nodes"
+    @staticmethod
+    def _owner(owner_id: str) -> str:
+        normalized = owner_id.strip()
+        if not normalized:
+            raise ValueError("owner_id is required.")
+        return normalized
+
+    def list_nodes(self, owner_id: str, include_deleted: bool = False) -> list[Node]:
+        normalized_owner = self._owner(owner_id)
+        query = "SELECT * FROM nodes WHERE owner_id = ?"
+        params: list[object] = [normalized_owner]
         if not include_deleted:
-            query += " WHERE is_deleted = 0"
+            query += " AND is_deleted = 0"
         query += " ORDER BY created_at ASC"
-        rows = self.repository.fetch_all(query)
+        rows = self.repository.fetch_all(query, params)
         return [self._row_to_node(row) for row in rows]
 
-    def get_node(self, node_id: str) -> Node | None:
+    def get_node(self, owner_id: str, node_id: str) -> Node | None:
+        normalized_owner = self._owner(owner_id)
         row = self.repository.fetch_one(
-            "SELECT * FROM nodes WHERE id = ? AND is_deleted = 0",
-            (node_id,),
+            "SELECT * FROM nodes WHERE owner_id = ? AND id = ? AND is_deleted = 0",
+            (normalized_owner, node_id),
         )
         if not row:
             return None
@@ -78,10 +88,12 @@ class GraphService:
 
     def create_node(
         self,
+        owner_id: str,
         payload: NodeCreatePayload,
         actor: str,
         reason: str | None = None,
     ) -> Node:
+        normalized_owner = self._owner(owner_id)
         content = payload.content.strip()
         if not content:
             raise ValueError("`content` is required.")
@@ -106,16 +118,17 @@ class GraphService:
             conn.execute(
                 """
                 INSERT INTO nodes (
-                    id, content, summary,
+                    id, owner_id, content, summary,
                     position_x, position_y,
                     color, size, tags,
                     confidence, evidence,
                     created_at, updated_at,
                     version, is_deleted
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     node.id,
+                    normalized_owner,
                     node.content,
                     node.summary,
                     node.position.x,
@@ -133,6 +146,7 @@ class GraphService:
             )
             self._insert_audit(
                 conn,
+                normalized_owner,
                 AuditLog(
                     entity_type=EntityType.NODE.value,
                     entity_id=node.id,
@@ -147,12 +161,17 @@ class GraphService:
 
     def update_node(
         self,
+        owner_id: str,
         node_id: str,
         payload: NodeUpdatePayload,
         actor: str,
         reason: str | None = None,
     ) -> Node | None:
-        row = self.repository.fetch_one("SELECT * FROM nodes WHERE id = ?", (node_id,))
+        normalized_owner = self._owner(owner_id)
+        row = self.repository.fetch_one(
+            "SELECT * FROM nodes WHERE owner_id = ? AND id = ?",
+            (normalized_owner, node_id),
+        )
         if not row:
             return None
 
@@ -207,7 +226,7 @@ class GraphService:
                     evidence = ?,
                     updated_at = ?,
                     version = ?
-                WHERE id = ?
+                WHERE owner_id = ? AND id = ?
                 """,
                 (
                     updated.content,
@@ -221,11 +240,13 @@ class GraphService:
                     json.dumps(updated.evidence, ensure_ascii=False),
                     updated.updated_at,
                     updated.version,
+                    normalized_owner,
                     node_id,
                 ),
             )
             self._insert_audit(
                 conn,
+                normalized_owner,
                 AuditLog(
                     entity_type=EntityType.NODE.value,
                     entity_id=node_id,
@@ -241,12 +262,17 @@ class GraphService:
 
     def delete_node(
         self,
+        owner_id: str,
         node_id: str,
         actor: str,
         payload: DeletePayload | None = None,
         reason: str | None = None,
     ) -> bool:
-        row = self.repository.fetch_one("SELECT * FROM nodes WHERE id = ?", (node_id,))
+        normalized_owner = self._owner(owner_id)
+        row = self.repository.fetch_one(
+            "SELECT * FROM nodes WHERE owner_id = ? AND id = ?",
+            (normalized_owner, node_id),
+        )
         if not row:
             return False
 
@@ -268,12 +294,13 @@ class GraphService:
                 """
                 UPDATE nodes
                 SET is_deleted = 1, version = ?, updated_at = ?
-                WHERE id = ?
+                WHERE owner_id = ? AND id = ?
                 """,
-                (node.version, node.updated_at, node_id),
+                (node.version, node.updated_at, normalized_owner, node_id),
             )
             self._insert_audit(
                 conn,
+                normalized_owner,
                 AuditLog(
                     entity_type=EntityType.NODE.value,
                     entity_id=node_id,
@@ -288,9 +315,9 @@ class GraphService:
             connected_rows = conn.execute(
                 """
                 SELECT * FROM connections
-                WHERE is_deleted = 0 AND (source_id = ? OR target_id = ?)
+                WHERE owner_id = ? AND is_deleted = 0 AND (source_id = ? OR target_id = ?)
                 """,
-                (node_id, node_id),
+                (normalized_owner, node_id, node_id),
             ).fetchall()
             for edge_row in connected_rows:
                 edge = self._row_to_connection(edge_row)
@@ -303,13 +330,14 @@ class GraphService:
                     """
                     UPDATE connections
                     SET is_deleted = 1, version = ?, updated_at = ?
-                    WHERE id = ?
+                    WHERE owner_id = ? AND id = ?
                     """,
-                    (edge.version, edge.updated_at, edge.id),
+                    (edge.version, edge.updated_at, normalized_owner, edge.id),
                 )
                 cascade_reason = (audit_reason or "") + " [cascade by node deletion]"
                 self._insert_audit(
                     conn,
+                    normalized_owner,
                     AuditLog(
                         entity_type=EntityType.CONNECTION.value,
                         entity_id=edge.id,
@@ -323,20 +351,24 @@ class GraphService:
 
         return True
 
-    def list_connections(self, include_deleted: bool = False) -> list[Connection]:
-        query = "SELECT * FROM connections"
+    def list_connections(self, owner_id: str, include_deleted: bool = False) -> list[Connection]:
+        normalized_owner = self._owner(owner_id)
+        query = "SELECT * FROM connections WHERE owner_id = ?"
+        params: list[object] = [normalized_owner]
         if not include_deleted:
-            query += " WHERE is_deleted = 0"
+            query += " AND is_deleted = 0"
         query += " ORDER BY created_at ASC"
-        rows = self.repository.fetch_all(query)
+        rows = self.repository.fetch_all(query, params)
         return [self._row_to_connection(row) for row in rows]
 
     def create_connection(
         self,
+        owner_id: str,
         payload: ConnectionCreatePayload,
         actor: str,
         reason: str | None = None,
     ) -> Connection:
+        normalized_owner = self._owner(owner_id)
         source_id = payload.source_id
         target_id = payload.target_id
         if not source_id or not target_id:
@@ -349,12 +381,12 @@ class GraphService:
             raise ValueError("Invalid `conn_type`.")
 
         source = self.repository.fetch_one(
-            "SELECT id FROM nodes WHERE id = ? AND is_deleted = 0",
-            (source_id,),
+            "SELECT id FROM nodes WHERE owner_id = ? AND id = ? AND is_deleted = 0",
+            (normalized_owner, source_id),
         )
         target = self.repository.fetch_one(
-            "SELECT id FROM nodes WHERE id = ? AND is_deleted = 0",
-            (target_id,),
+            "SELECT id FROM nodes WHERE owner_id = ? AND id = ? AND is_deleted = 0",
+            (normalized_owner, target_id),
         )
         if not source or not target:
             raise ValueError("Source/target node does not exist or is deleted.")
@@ -373,14 +405,15 @@ class GraphService:
             conn.execute(
                 """
                 INSERT INTO connections (
-                    id, source_id, target_id,
+                    id, owner_id, source_id, target_id,
                     conn_type, description, strength,
                     created_at, updated_at,
                     version, is_deleted
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     edge.id,
+                    normalized_owner,
                     edge.source_id,
                     edge.target_id,
                     edge.conn_type,
@@ -394,6 +427,7 @@ class GraphService:
             )
             self._insert_audit(
                 conn,
+                normalized_owner,
                 AuditLog(
                     entity_type=EntityType.CONNECTION.value,
                     entity_id=edge.id,
@@ -408,12 +442,17 @@ class GraphService:
 
     def update_connection(
         self,
+        owner_id: str,
         conn_id: str,
         payload: ConnectionUpdatePayload,
         actor: str,
         reason: str | None = None,
     ) -> Connection | None:
-        row = self.repository.fetch_one("SELECT * FROM connections WHERE id = ?", (conn_id,))
+        normalized_owner = self._owner(owner_id)
+        row = self.repository.fetch_one(
+            "SELECT * FROM connections WHERE owner_id = ? AND id = ?",
+            (normalized_owner, conn_id),
+        )
         if not row:
             return None
 
@@ -449,7 +488,7 @@ class GraphService:
                     strength = ?,
                     updated_at = ?,
                     version = ?
-                WHERE id = ?
+                WHERE owner_id = ? AND id = ?
                 """,
                 (
                     updated.conn_type,
@@ -457,11 +496,13 @@ class GraphService:
                     updated.strength,
                     updated.updated_at,
                     updated.version,
+                    normalized_owner,
                     conn_id,
                 ),
             )
             self._insert_audit(
                 conn,
+                normalized_owner,
                 AuditLog(
                     entity_type=EntityType.CONNECTION.value,
                     entity_id=conn_id,
@@ -477,12 +518,17 @@ class GraphService:
 
     def delete_connection(
         self,
+        owner_id: str,
         conn_id: str,
         actor: str,
         payload: DeletePayload | None = None,
         reason: str | None = None,
     ) -> bool:
-        row = self.repository.fetch_one("SELECT * FROM connections WHERE id = ?", (conn_id,))
+        normalized_owner = self._owner(owner_id)
+        row = self.repository.fetch_one(
+            "SELECT * FROM connections WHERE owner_id = ? AND id = ?",
+            (normalized_owner, conn_id),
+        )
         if not row:
             return False
 
@@ -503,12 +549,13 @@ class GraphService:
                 """
                 UPDATE connections
                 SET is_deleted = 1, version = ?, updated_at = ?
-                WHERE id = ?
+                WHERE owner_id = ? AND id = ?
                 """,
-                (edge.version, edge.updated_at, conn_id),
+                (edge.version, edge.updated_at, normalized_owner, conn_id),
             )
             self._insert_audit(
                 conn,
+                normalized_owner,
                 AuditLog(
                     entity_type=EntityType.CONNECTION.value,
                     entity_id=conn_id,
@@ -522,12 +569,15 @@ class GraphService:
 
         return True
 
-    def graph_snapshot(self) -> GraphSnapshot:
+    def graph_snapshot(self, owner_id: str) -> GraphSnapshot:
+        normalized_owner = self._owner(owner_id)
         node_rows = self.repository.fetch_all(
-            "SELECT * FROM nodes WHERE is_deleted = 0 ORDER BY created_at ASC"
+            "SELECT * FROM nodes WHERE owner_id = ? AND is_deleted = 0 ORDER BY created_at ASC",
+            (normalized_owner,),
         )
         conn_rows = self.repository.fetch_all(
-            "SELECT * FROM connections WHERE is_deleted = 0 ORDER BY created_at ASC"
+            "SELECT * FROM connections WHERE owner_id = ? AND is_deleted = 0 ORDER BY created_at ASC",
+            (normalized_owner,),
         )
 
         nodes = [self._row_to_node(row) for row in node_rows]
@@ -540,8 +590,8 @@ class GraphService:
             visualization=vis_payload,
         )
 
-    def export_graph(self) -> GraphExportResult:
-        snapshot = self.graph_snapshot()
+    def export_graph(self, owner_id: str) -> GraphExportResult:
+        snapshot = self.graph_snapshot(owner_id)
         node_states = [node.to_state() for node in snapshot.nodes]
         connection_states = [conn.to_state() for conn in snapshot.connections]
         exported_at = utc_now()
@@ -564,13 +614,15 @@ class GraphService:
 
     def save_graph(
         self,
+        owner_id: str,
         payload: GraphSavePayload,
         actor: str,
         reason: str | None = None,
     ) -> GraphSaveResult:
+        normalized_owner = self._owner(owner_id)
         name = self._normalize_snapshot_name(payload.name)
         saved_at = utc_now()
-        snapshot = self.graph_snapshot()
+        snapshot = self.graph_snapshot(normalized_owner)
         node_states = [node.to_state() for node in snapshot.nodes]
         connection_states = [conn.to_state() for conn in snapshot.connections]
         snapshot_payload = {
@@ -585,9 +637,9 @@ class GraphService:
             conn.execute(
                 """
                 INSERT INTO graph_snapshots (
-                    name, payload, node_count, connection_count, actor, saved_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(name) DO UPDATE SET
+                    owner_id, name, payload, node_count, connection_count, actor, saved_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(owner_id, name) DO UPDATE SET
                     payload = excluded.payload,
                     node_count = excluded.node_count,
                     connection_count = excluded.connection_count,
@@ -595,6 +647,7 @@ class GraphService:
                     saved_at = excluded.saved_at
                 """,
                 (
+                    normalized_owner,
                     name,
                     json.dumps(snapshot_payload, ensure_ascii=False),
                     len(node_states),
@@ -613,13 +666,16 @@ class GraphService:
             message="graph snapshot saved",
         )
 
-    def list_saved_graphs(self) -> list[SavedGraphSummary]:
+    def list_saved_graphs(self, owner_id: str) -> list[SavedGraphSummary]:
+        normalized_owner = self._owner(owner_id)
         rows = self.repository.fetch_all(
             """
             SELECT name, node_count, connection_count, actor, saved_at
             FROM graph_snapshots
+            WHERE owner_id = ?
             ORDER BY saved_at DESC
-            """
+            """,
+            (normalized_owner,),
         )
         return [
             SavedGraphSummary(
@@ -634,14 +690,16 @@ class GraphService:
 
     def load_graph(
         self,
+        owner_id: str,
         payload: GraphLoadPayload,
         actor: str,
         reason: str | None = None,
     ) -> GraphLoadResult:
+        normalized_owner = self._owner(owner_id)
         name = self._normalize_snapshot_name(payload.name)
         row = self.repository.fetch_one(
-            "SELECT payload FROM graph_snapshots WHERE name = ?",
-            (name,),
+            "SELECT payload FROM graph_snapshots WHERE owner_id = ? AND name = ?",
+            (normalized_owner, name),
         )
         if not row:
             raise ValueError("saved graph not found")
@@ -669,6 +727,7 @@ class GraphService:
             else f"load graph snapshot: {name}"
         )
         self._replace_graph_content(
+            owner_id=normalized_owner,
             parsed_nodes=parsed_nodes,
             parsed_connections=parsed_connections,
             actor=actor,
@@ -676,7 +735,7 @@ class GraphService:
             create_reason=f"{audit_reason} [restore snapshot]",
         )
 
-        loaded_snapshot = self.graph_snapshot()
+        loaded_snapshot = self.graph_snapshot(normalized_owner)
         return GraphLoadResult(
             name=name,
             loaded_at=utc_now(),
@@ -686,10 +745,12 @@ class GraphService:
 
     def import_graph(
         self,
+        owner_id: str,
         payload: GraphImportPayload,
         actor: str,
         reason: str | None = None,
     ) -> GraphImportResult:
+        normalized_owner = self._owner(owner_id)
         if not payload.has_graph_data:
             raise ValueError("import payload must contain `nodes` or `connections` fields.")
 
@@ -704,6 +765,7 @@ class GraphService:
         )
 
         restored_nodes, restored_connections = self._replace_graph_content(
+            owner_id=normalized_owner,
             parsed_nodes=parsed_nodes,
             parsed_connections=parsed_connections,
             actor=actor,
@@ -721,19 +783,22 @@ class GraphService:
     def _replace_graph_content(
         self,
         *,
+        owner_id: str,
         parsed_nodes: list[Node],
         parsed_connections: list[Connection],
         actor: str,
         clear_reason: str,
         create_reason: str,
     ) -> tuple[int, int]:
+        normalized_owner = self._owner(owner_id)
         now = utc_now()
         restored_node_count = 0
         restored_connection_count = 0
 
         with self.repository.transaction() as conn:
             active_connections = conn.execute(
-                "SELECT * FROM connections WHERE is_deleted = 0"
+                "SELECT * FROM connections WHERE owner_id = ? AND is_deleted = 0",
+                (normalized_owner,),
             ).fetchall()
             for row_item in active_connections:
                 existing = self._row_to_connection(row_item)
@@ -745,12 +810,13 @@ class GraphService:
                     """
                     UPDATE connections
                     SET is_deleted = 1, version = ?, updated_at = ?
-                    WHERE id = ?
+                    WHERE owner_id = ? AND id = ?
                     """,
-                    (existing.version, existing.updated_at, existing.id),
+                    (existing.version, existing.updated_at, normalized_owner, existing.id),
                 )
                 self._insert_audit(
                     conn,
+                    normalized_owner,
                     AuditLog(
                         entity_type=EntityType.CONNECTION.value,
                         entity_id=existing.id,
@@ -762,7 +828,10 @@ class GraphService:
                     ),
                 )
 
-            active_nodes = conn.execute("SELECT * FROM nodes WHERE is_deleted = 0").fetchall()
+            active_nodes = conn.execute(
+                "SELECT * FROM nodes WHERE owner_id = ? AND is_deleted = 0",
+                (normalized_owner,),
+            ).fetchall()
             for row_item in active_nodes:
                 existing = self._row_to_node(row_item)
                 before_state = existing.to_state()
@@ -773,12 +842,13 @@ class GraphService:
                     """
                     UPDATE nodes
                     SET is_deleted = 1, version = ?, updated_at = ?
-                    WHERE id = ?
+                    WHERE owner_id = ? AND id = ?
                     """,
-                    (existing.version, existing.updated_at, existing.id),
+                    (existing.version, existing.updated_at, normalized_owner, existing.id),
                 )
                 self._insert_audit(
                     conn,
+                    normalized_owner,
                     AuditLog(
                         entity_type=EntityType.NODE.value,
                         entity_id=existing.id,
@@ -804,16 +874,17 @@ class GraphService:
                 conn.execute(
                     """
                     INSERT INTO nodes (
-                        id, content, summary,
+                        id, owner_id, content, summary,
                         position_x, position_y,
                         color, size, tags,
                         confidence, evidence,
                         created_at, updated_at,
                         version, is_deleted
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         restored.id,
+                        normalized_owner,
                         restored.content,
                         restored.summary,
                         restored.position.x,
@@ -831,6 +902,7 @@ class GraphService:
                 )
                 self._insert_audit(
                     conn,
+                    normalized_owner,
                     AuditLog(
                         entity_type=EntityType.NODE.value,
                         entity_id=restored.id,
@@ -860,14 +932,15 @@ class GraphService:
                 conn.execute(
                     """
                     INSERT INTO connections (
-                        id, source_id, target_id,
+                        id, owner_id, source_id, target_id,
                         conn_type, description, strength,
                         created_at, updated_at,
                         version, is_deleted
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         restored.id,
+                        normalized_owner,
                         restored.source_id,
                         restored.target_id,
                         restored.conn_type,
@@ -881,6 +954,7 @@ class GraphService:
                 )
                 self._insert_audit(
                     conn,
+                    normalized_owner,
                     AuditLog(
                         entity_type=EntityType.CONNECTION.value,
                         entity_id=restored.id,
@@ -896,17 +970,19 @@ class GraphService:
 
     def delete_saved_graph(
         self,
+        owner_id: str,
         payload: GraphDeletePayload,
         actor: str,
         reason: str | None = None,
     ) -> GraphDeleteResult:
+        normalized_owner = self._owner(owner_id)
         name = self._normalize_snapshot_name(payload.name)
         deleted_at = utc_now()
 
         with self.repository.transaction() as conn:
             cursor = conn.execute(
-                "DELETE FROM graph_snapshots WHERE name = ?",
-                (name,),
+                "DELETE FROM graph_snapshots WHERE owner_id = ? AND name = ?",
+                (normalized_owner, name),
             )
             if int(cursor.rowcount) <= 0:
                 raise ValueError("saved graph not found")
@@ -919,10 +995,12 @@ class GraphService:
 
     def clear_graph(
         self,
+        owner_id: str,
         payload: GraphClearPayload | None,
         actor: str,
         reason: str | None = None,
     ) -> GraphClearResult:
+        normalized_owner = self._owner(owner_id)
         payload_reason = payload.reason if payload is not None else None
         audit_reason = (
             reason
@@ -938,7 +1016,8 @@ class GraphService:
 
         with self.repository.transaction() as conn:
             active_connections = conn.execute(
-                "SELECT * FROM connections WHERE is_deleted = 0"
+                "SELECT * FROM connections WHERE owner_id = ? AND is_deleted = 0",
+                (normalized_owner,),
             ).fetchall()
             for row_item in active_connections:
                 existing = self._row_to_connection(row_item)
@@ -951,12 +1030,13 @@ class GraphService:
                     """
                     UPDATE connections
                     SET is_deleted = 1, version = ?, updated_at = ?
-                    WHERE id = ?
+                    WHERE owner_id = ? AND id = ?
                     """,
-                    (existing.version, existing.updated_at, existing.id),
+                    (existing.version, existing.updated_at, normalized_owner, existing.id),
                 )
                 self._insert_audit(
                     conn,
+                    normalized_owner,
                     AuditLog(
                         entity_type=EntityType.CONNECTION.value,
                         entity_id=existing.id,
@@ -969,7 +1049,10 @@ class GraphService:
                 )
                 cleared_connections += 1
 
-            active_nodes = conn.execute("SELECT * FROM nodes WHERE is_deleted = 0").fetchall()
+            active_nodes = conn.execute(
+                "SELECT * FROM nodes WHERE owner_id = ? AND is_deleted = 0",
+                (normalized_owner,),
+            ).fetchall()
             for row_item in active_nodes:
                 existing = self._row_to_node(row_item)
                 before_state = existing.to_state()
@@ -981,12 +1064,13 @@ class GraphService:
                     """
                     UPDATE nodes
                     SET is_deleted = 1, version = ?, updated_at = ?
-                    WHERE id = ?
+                    WHERE owner_id = ? AND id = ?
                     """,
-                    (existing.version, existing.updated_at, existing.id),
+                    (existing.version, existing.updated_at, normalized_owner, existing.id),
                 )
                 self._insert_audit(
                     conn,
+                    normalized_owner,
                     AuditLog(
                         entity_type=EntityType.NODE.value,
                         entity_id=existing.id,
@@ -1006,9 +1090,10 @@ class GraphService:
             message="current graph cleared",
         )
 
-    def list_audits(self, query: AuditQuery) -> list[AuditRecord]:
-        sql = "SELECT * FROM audits WHERE 1 = 1"
-        params: list[object] = []
+    def list_audits(self, owner_id: str, query: AuditQuery) -> list[AuditRecord]:
+        normalized_owner = self._owner(owner_id)
+        sql = "SELECT * FROM audits WHERE owner_id = ?"
+        params: list[object] = [normalized_owner]
 
         if query.entity_type:
             sql += " AND entity_type = ?"
@@ -1036,13 +1121,13 @@ class GraphService:
             for row in rows
         ]
 
-    def export_audits(self, query: AuditQuery) -> AuditExportResult:
+    def export_audits(self, owner_id: str, query: AuditQuery) -> AuditExportResult:
         normalized_query = AuditQuery(
             entity_type=(query.entity_type or None),
             entity_id=(query.entity_id or None),
             limit=min(max(int(query.limit), 1), 5000),
         )
-        audits = self.list_audits(normalized_query)
+        audits = self.list_audits(owner_id, normalized_query)
 
         entity_counts: dict[str, int] = {}
         action_counts: dict[str, int] = {}
@@ -1072,7 +1157,8 @@ class GraphService:
             audits=audits,
         )
 
-    def verify_audit_integrity(self) -> AuditIntegrityReport:
+    def verify_audit_integrity(self, owner_id: str) -> AuditIntegrityReport:
+        normalized_owner = self._owner(owner_id)
         issues: list[str] = []
 
         entity_table_pairs = (
@@ -1081,16 +1167,19 @@ class GraphService:
         )
 
         for entity_type, table in entity_table_pairs:
-            records = self.repository.fetch_all(f"SELECT id, is_deleted FROM {table}")
+            records = self.repository.fetch_all(
+                f"SELECT id, is_deleted FROM {table} WHERE owner_id = ?",
+                (normalized_owner,),
+            )
             for record in records:
                 entity_id = str(record["id"])
                 actions = self.repository.fetch_all(
                     """
                     SELECT action, before_state, after_state
                     FROM audits
-                    WHERE entity_type = ? AND entity_id = ?
+                    WHERE owner_id = ? AND entity_type = ? AND entity_id = ?
                     """,
-                    (entity_type, entity_id),
+                    (normalized_owner, entity_type, entity_id),
                 )
                 action_names = {str(row["action"]) for row in actions}
                 if AuditAction.CREATE.value not in action_names:
@@ -1135,17 +1224,18 @@ class GraphService:
         return min(max(value, low), high)
 
     @staticmethod
-    def _insert_audit(conn: sqlite3.Connection, log: AuditLog) -> None:
+    def _insert_audit(conn: sqlite3.Connection, owner_id: str, log: AuditLog) -> None:
         conn.execute(
             """
             INSERT INTO audits (
-                entity_type, entity_id, action,
+                owner_id, entity_type, entity_id, action,
                 actor, reason,
                 before_state, after_state,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                owner_id,
                 log.entity_type,
                 log.entity_id,
                 log.action,
