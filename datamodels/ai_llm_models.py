@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Mapping
 
+from datamodels.graph_models import SubgraphQueryPayload
+
 
 @dataclass(slots=True)
 class LLMContext:
@@ -15,6 +17,8 @@ class LLMChatRequest:
     temperature: float = 0.3
     max_tokens: int = 800
     language: str = "zh"
+    graph_scope: str = "full"  # "full" | "subgraph"
+    subgraph: SubgraphQueryPayload | None = None
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, object]) -> "LLMChatRequest":
@@ -61,12 +65,35 @@ class LLMChatRequest:
         if language not in {"zh", "en"}:
             language = "zh"
 
+        # Parse graph_scope with validation
+        graph_scope_raw = payload.get("graph_scope", "full")
+        if isinstance(graph_scope_raw, str):
+            graph_scope = graph_scope_raw.strip().lower()
+        else:
+            graph_scope = "full"
+        if graph_scope not in {"full", "subgraph"}:
+            graph_scope = "full"
+
+        # Parse subgraph payload if present
+        subgraph = None
+        if graph_scope == "subgraph" and "subgraph" in payload:
+            subgraph_data = payload.get("subgraph")
+            if isinstance(subgraph_data, Mapping):
+                try:
+                    subgraph = SubgraphQueryPayload.from_mapping(subgraph_data)
+                except Exception:
+                    # If subgraph parsing fails, fall back to full
+                    graph_scope = "full"
+                    subgraph = None
+
         return cls(
             prompt=prompt,
             system_prompt=system_prompt,
             temperature=float(temperature),
             max_tokens=int(max_tokens),
             language=language,
+            graph_scope=graph_scope,
+            subgraph=subgraph,
         )
 
 

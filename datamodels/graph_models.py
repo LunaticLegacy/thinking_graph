@@ -1,4 +1,4 @@
-﻿"""Dataclass models for Thinking Graph domain and API payloads."""
+"""Dataclass models for Thinking Graph domain and API payloads."""
 
 from __future__ import annotations
 
@@ -39,6 +39,98 @@ class AuditAction(str, Enum):
     CREATE = "create"
     UPDATE = "update"
     DELETE = "delete"
+
+
+@dataclass(slots=True)
+class SubgraphQueryPayload:
+    """Payload for querying a subgraph based on various criteria."""
+    query: str | None = None
+    seed_node_ids: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    evidence_keywords: list[str] = field(default_factory=list)
+    conn_types: list[str] = field(default_factory=list)
+    max_nodes: int = 12
+    max_connections: int = 24
+    max_hops: int = 2
+    min_confidence: float = 0.0
+    include_visualization: bool = True
+    include_orphans: bool = False
+    reason: str | None = None
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, object]) -> "SubgraphQueryPayload":
+        # Clamp max_nodes to [1, 50]
+        max_nodes_raw = data.get("max_nodes", 12)
+        if isinstance(max_nodes_raw, (int, float)):
+            max_nodes = max(1, min(50, int(max_nodes_raw)))
+        else:
+            try:
+                max_nodes = max(1, min(50, int(max_nodes_raw)))
+            except (ValueError, TypeError):
+                max_nodes = 12
+
+        # Clamp max_connections to [0, 100]
+        max_conn_raw = data.get("max_connections", 24)
+        if isinstance(max_conn_raw, (int, float)):
+            max_connections = max(0, min(100, int(max_conn_raw)))
+        else:
+            try:
+                max_connections = max(0, min(100, int(max_conn_raw)))
+            except (ValueError, TypeError):
+                max_connections = 24
+
+        # Clamp max_hops to [0, 4]
+        max_hops_raw = data.get("max_hops", 2)
+        if isinstance(max_hops_raw, (int, float)):
+            max_hops = max(0, min(4, int(max_hops_raw)))
+        else:
+            try:
+                max_hops = max(0, min(4, int(max_hops_raw)))
+            except (ValueError, TypeError):
+                max_hops = 2
+
+        # Clamp min_confidence to [0, 1]
+        min_conf_raw = data.get("min_confidence", 0.0)
+        if isinstance(min_conf_raw, (int, float)):
+            min_confidence = max(0.0, min(1.0, float(min_conf_raw)))
+        else:
+            try:
+                min_confidence = max(0.0, min(1.0, float(min_conf_raw)))
+            except (ValueError, TypeError):
+                min_confidence = 0.0
+
+        # Filter invalid conn_types
+        raw_conn_types = _to_str_list(data.get("conn_types"))
+        valid_conn_types = ConnectionType.values()
+        filtered_conn_types = [ct for ct in raw_conn_types if ct in valid_conn_types]
+
+        return cls(
+            query=_to_optional_str(data.get("query")),
+            seed_node_ids=_to_str_list(data.get("seed_node_ids")),
+            tags=_to_str_list(data.get("tags")),
+            evidence_keywords=_to_str_list(data.get("evidence_keywords")),
+            conn_types=filtered_conn_types,
+            max_nodes=max_nodes,
+            max_connections=max_connections,
+            max_hops=max_hops,
+            min_confidence=min_confidence,
+            include_visualization=_to_bool(data.get("include_visualization"), True),
+            include_orphans=_to_bool(data.get("include_orphans"), False),
+            reason=_to_optional_str(data.get("reason")),
+        )
+
+
+@dataclass(slots=True)
+class SubgraphResult:
+    """Result of a subgraph query."""
+    query: SubgraphQueryPayload
+    snapshot: GraphSnapshot
+    total_nodes_in_graph: int
+    total_connections_in_graph: int
+    selected_node_count: int
+    selected_connection_count: int
+    seed_node_count: int
+    message: str
 
 
 @dataclass(slots=True)

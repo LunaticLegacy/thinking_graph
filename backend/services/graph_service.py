@@ -1,4 +1,4 @@
-﻿"""Business logic for nodes, connections and full auditing."""
+"""Business logic for nodes, connections and full auditing."""
 
 from __future__ import annotations
 
@@ -39,6 +39,8 @@ from datamodels.graph_models import (
     NodeUpdatePayload,
     Position,
     SavedGraphSummary,
+    SubgraphQueryPayload,
+    SubgraphResult,
     utc_now,
 )
 
@@ -589,6 +591,336 @@ class GraphService:
             connections=connections,
             visualization=vis_payload,
         )
+
+    def query_subgraph(self, owner_id: str, payload: SubgraphQueryPayload) -> SubgraphResult:
+        """Query a subgraph based on various criteria."""
+        normalized_owner = self._owner(owner_id)
+        
+        # Get full active graph
+        snapshot = self.graph_snapshot(normalized_owner)
+        all_nodes = snapshot.nodes
+        all_connections = snapshot.connections
+        
+        total_nodes = len(all_nodes)
+        total_connections = len(all_connections)
+        
+        # If graph is empty, return empty result
+        if not all_nodes:
+            vis_payload = build_vis_payload([], []) if payload.include_visualization else build_vis_payload([], [])
+            return SubgraphResult(
+                query=payload,
+                snapshot=GraphSnapshot(nodes=[], connections=[], visualization=vis_payload),
+                total_nodes_in_graph=total_nodes,
+                total_connections_in_graph=total_connections,
+                selected_node_count=0,
+                selected_connection_count=0,
+                seed_node_count=0,
+                message="Empty graph"
+            )
+        
+        # Score all nodes
+        node_scores = []
+        for node in all_nodes:
+            score = self._score_node_for_subgraph(node, payload)
+            node_scores.append((node, score))
+        
+        # Select initial seed nodes based on scores
+        seed_nodes = self._select_initial_seeds(node_scores, payload)
+        seed_node_ids = {node.id for node in seed_nodes}
+        
+        # Expand neighborhood
+        expanded_node_ids = self._expand_subgraph_nodes(
+            seed_node_ids, all_connections, payload.max_hops, payload.conn_types
+        )
+        
+        # Filter by confidence (but keep seeds even if below threshold)
+        filtered_node_ids = set()
+        for node_id in expanded_node_ids:
+            node = next((n for n in all_nodes if n.id == node_id), None)
+            if node:
+                # Keep seed nodes even if below confidence threshold
+                if node.confidence >= payload.min_confidence or node_id in seed_node_ids:
+                    filtered_node_ids.add(node_id)
+        
+        # Get selected nodes
+        selected_nodes = [n for n in all_nodes if n.id in filtered_node_ids]
+        
+        # Trim to max_nodes
+        selected_nodes = self._trim_subgraph_nodes(selected_nodes, seed_node_ids, payload.max_nodes)
+        final_node_ids = {n.id for n in selected_nodes}
+        
+        # Select connections between selected nodes
+        selected_connections = self._select_subgraph_connections(
+            all_connections, final_node_ids, payload.conn_types, payload.max_connections
+        )
+        
+        # Remove orphans if requested
+        if not payload.include_orphans:
+            connected_node_ids = set()
+            for conn in selected_connections:
+                connected_node_ids.add(conn.source_id)
+                connected_node_ids.add(conn.target_id)
+            
+            non_orphan_nodes = []
+            for node in selected_nodes:
+                if node.id in connected_node_ids or node.id in seed_node_ids:
+                    non_orphan_nodes.append(node)
+            selected_nodes = non_orphan_nodes
+            final_node_ids = {n.id for n in selected_nodes}
+            
+            # Re-filter connections after removing orphans
+            selected_connections = self._select_subgraph_connections(
+                all_connections, final_node_ids, payload.conn_types, payload.max_connections
+            )
+        
+        # Build visualization
+        vis_payload = build_vis_payload(selected_nodes, selected_connections) if payload.include_visualization else build_vis_payload([], [])
+        
+        return SubgraphResult(
+            query=payload,
+            snapshot=GraphSnapshot(
+                nodes=selected_nodes,
+                connections=selected_connections,
+                visualization=vis_payload
+            ),
+            total_nodes_in_graph=total_nodes,
+            total_connections_in_graph=total_connections,
+            selected_node_count=len(selected_nodes),
+            selected_connection_count=len(selected_connections),
+            seed_node_count=len(seed_node_ids & final_node_ids),
+            message=f"Selected {len(selected_nodes)} nodes and {len(selected_connections)} connections"
+        )
+
+    def _normalize_query_text(self, text: str | None) -> str:
+        """Normalize query text for matching."""
+        if not text:
+            return ""
+        return text.lower().strip()
+
+    def _tokenize_query(self, query: str) -> list[str]:
+        """Tokenize query text into words (simple split on non-alphanumeric)."""
+        import re
+        # Split on non-alphanumeric characters
+        tokens = re.findall(r'[a-z0-9]+', query.lower())
+        return tokens
+
+    def _score_node_for_subgraph(self, node: Node, payload: SubgraphQueryPayload) -> float:
+        """Score a node based on query relevance and other factors."""
+        score = 0.0
+        
+        # Query lexical matching
+        if payload.query:
+            normalized_query = self._normalize_query_text(payload.query)
+            tokens = self._tokenize_query(normalized_query)
+            
+            # Match against content
+            content_lower = node.content.lower()
+            summary_lower = node.summary.lower()
+            
+            # For English tokens, check word overlap
+            for token in tokens:
+                if token in content_lower:
+                    score += 2.0
+                if token in summary_lower:
+                    score += 1.5
+            
+            # For Chinese or general substring matching
+            if normalized_query and len(normalized_query) > 1:
+                if normalized_query in content_lower:
+                    score += 5.0
+                if normalized_query in summary_lower:
+                    score += 3.0
+        
+        # Seed node bonus (high weight)
+        if node.id in payload.seed_node_ids:
+            score += 50.0
+        
+        # Tag matching
+        if payload.tags:
+            node_tags_lower = [t.lower() for t in node.tags]
+            for tag in payload.tags:
+                if tag.lower() in node_tags_lower:
+                    score += 10.0
+        
+        # Evidence keyword matching
+        if payload.evidence_keywords:
+            evidence_text = ' '.join(node.evidence).lower()
+            for keyword in payload.evidence_keywords:
+                if keyword.lower() in evidence_text:
+                    score += 8.0
+        
+        # Confidence bonus (light weight, don't dominate)
+        score += node.confidence * 2.0
+        
+        # Recency bonus (very light weight) - using updated_at as proxy
+        # This is a simple implementation; could be enhanced with actual date parsing
+        try:
+            # Just use version as a simple recency proxy
+            score += min(node.version * 0.1, 1.0)
+        except Exception:
+            pass
+        
+        return score
+
+    def _select_initial_seeds(
+        self, 
+        node_scores: list[tuple[Node, float]], 
+        payload: SubgraphQueryPayload
+    ) -> list[Node]:
+        """Select initial seed nodes based on scores."""
+        # Sort by score descending, then by created_at for stability
+        sorted_nodes = sorted(
+            node_scores,
+            key=lambda x: (-x[1], x[0].created_at, x[0].id)
+        )
+        
+        # Filter out zero-score nodes unless they are explicit seeds
+        candidates = []
+        for node, score in sorted_nodes:
+            if score > 0 or node.id in payload.seed_node_ids:
+                candidates.append(node)
+        
+        # If no query/seed/tags/evidence provided, return recent nodes
+        has_criteria = (
+            payload.query or 
+            payload.seed_node_ids or 
+            payload.tags or 
+            payload.evidence_keywords
+        )
+        
+        if not has_criteria:
+            # Return up to max_nodes most recently created nodes
+            recent_nodes = sorted(
+                [node for node, _ in node_scores],
+                key=lambda n: n.created_at,
+                reverse=True
+            )[:payload.max_nodes]
+            return recent_nodes
+        
+        return candidates[:payload.max_nodes]
+
+    def _build_active_adjacency(
+        self, 
+        connections: list[Connection],
+        allowed_conn_types: list[str] | None = None
+    ) -> dict[str, list[tuple[str, Connection]]]:
+        """Build adjacency list from connections."""
+        adj: dict[str, list[tuple[str, Connection]]] = {}
+        
+        for conn in connections:
+            # Filter by connection types if specified
+            if allowed_conn_types and conn.conn_type not in allowed_conn_types:
+                continue
+            
+            if conn.source_id not in adj:
+                adj[conn.source_id] = []
+            if conn.target_id not in adj:
+                adj[conn.target_id] = []
+            
+            # Bidirectional
+            adj[conn.source_id].append((conn.target_id, conn))
+            adj[conn.target_id].append((conn.source_id, conn))
+        
+        return adj
+
+    def _expand_subgraph_nodes(
+        self,
+        seed_node_ids: set[str],
+        all_connections: list[Connection],
+        max_hops: int,
+        allowed_conn_types: list[str] | None = None
+    ) -> set[str]:
+        """Expand from seed nodes using BFS up to max_hops."""
+        if max_hops == 0:
+            return seed_node_ids.copy()
+        
+        # Build adjacency with optional type filtering
+        adj = self._build_active_adjacency(all_connections, allowed_conn_types if allowed_conn_types else None)
+        
+        # BFS expansion
+        visited = seed_node_ids.copy()
+        current_level = seed_node_ids.copy()
+        
+        for hop in range(max_hops):
+            next_level = set()
+            for node_id in current_level:
+                neighbors = adj.get(node_id, [])
+                for neighbor_id, conn in neighbors:
+                    if neighbor_id not in visited:
+                        # Prioritize high-priority edge types
+                        if self._is_high_priority_edge(conn.conn_type):
+                            next_level.add(neighbor_id)
+                        else:
+                            # Add lower priority edges but process them later
+                            next_level.add(neighbor_id)
+            
+            visited.update(next_level)
+            current_level = next_level
+            
+            if not current_level:
+                break
+        
+        return visited
+
+    def _is_high_priority_edge(self, conn_type: str) -> bool:
+        """Check if connection type is high priority."""
+        return conn_type in {"supports", "opposes", "leads_to"}
+
+    def _select_subgraph_connections(
+        self,
+        all_connections: list[Connection],
+        selected_node_ids: set[str],
+        allowed_conn_types: list[str] | None = None,
+        max_connections: int = 24
+    ) -> list[Connection]:
+        """Select connections between selected nodes."""
+        candidates = []
+        
+        for conn in all_connections:
+            # Both endpoints must be in selected nodes
+            if conn.source_id not in selected_node_ids or conn.target_id not in selected_node_ids:
+                continue
+            
+            # Filter by connection types if specified
+            if allowed_conn_types and conn.conn_type not in allowed_conn_types:
+                continue
+            
+            candidates.append(conn)
+        
+        # Sort by priority: high-priority types first, then by strength
+        priority_order = {"supports": 0, "opposes": 1, "leads_to": 2, "derives_from": 3, "relates": 4}
+        
+        candidates.sort(
+            key=lambda c: (
+                priority_order.get(c.conn_type, 5),
+                -c.strength,
+                c.created_at,
+                c.id
+            )
+        )
+        
+        return candidates[:max_connections]
+
+    def _trim_subgraph_nodes(
+        self,
+        selected_nodes: list[Node],
+        seed_node_ids: set[str],
+        max_nodes: int
+    ) -> list[Node]:
+        """Trim selected nodes to max_nodes limit."""
+        if len(selected_nodes) <= max_nodes:
+            return selected_nodes
+        
+        # Priority: seeds first, then by score (already scored), then proximity
+        # Since we don't have distance info here, just use creation order as tiebreaker
+        nodes_with_priority = []
+        for node in selected_nodes:
+            is_seed = 0 if node.id in seed_node_ids else 1
+            nodes_with_priority.append((is_seed, node.created_at, node.id, node))
+        
+        nodes_with_priority.sort(key=lambda x: (x[0], x[1], x[2]))
+        
+        return [item[3] for item in nodes_with_priority[:max_nodes]]
 
     def export_graph(self, owner_id: str) -> GraphExportResult:
         snapshot = self.graph_snapshot(owner_id)

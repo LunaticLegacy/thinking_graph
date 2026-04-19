@@ -35,7 +35,9 @@ from datamodels.graph_models import (
     NodesResponse,
     OkResponse,
     SavedGraphsResponse,
+    SubgraphQueryPayload,
 )
+
 from web.identity import RequestIdentity, resolve_request_identity
 
 web_bp = Blueprint("web", __name__)
@@ -723,16 +725,46 @@ def clear_graph():
 
 @web_bp.post("/api/llm/chat")
 def llm_chat():
-    payload = LLMChatRequest.from_mapping(payload_mapping())
+    payload_mapping_data = payload_mapping()
+    request_payload = LLMChatRequest.from_mapping(payload_mapping_data)
+    
     try:
-        snapshot = graph_service().graph_snapshot(owner_id())
-        answer = llm_service().ask(payload, graph_snapshot=snapshot)
+        # Determine whether to use full graph or subgraph
+        if request_payload.graph_scope == "subgraph" and request_payload.subgraph is not None:
+            # Use subgraph
+            subgraph_result = graph_service().query_subgraph(owner_id(), request_payload.subgraph)
+            snapshot = subgraph_result.snapshot
+        else:
+            # Use full graph (default behavior for backward compatibility)
+            snapshot = graph_service().graph_snapshot(owner_id())
+        
+        answer = llm_service().ask(request_payload, graph_snapshot=snapshot)
     except ValueError as exc:
         return jsonify(to_json_ready(ErrorResponse(error=str(exc)))), 400
     except Exception as exc:
         return jsonify(to_json_ready(ErrorResponse(error=f"LLM request failed: {exc}"))), 502
 
     return jsonify(to_json_ready(answer))
+
+
+@web_bp.post("/api/graph/subgraph")
+def query_subgraph():
+    """Query a subgraph based on various criteria."""
+    payload_mapping_data = payload_mapping()
+    
+    try:
+        subgraph_payload = SubgraphQueryPayload.from_mapping(payload_mapping_data)
+    except Exception as exc:
+        return jsonify(to_json_ready(ErrorResponse(error=f"Invalid subgraph query payload: {exc}"))), 400
+    
+    try:
+        result = graph_service().query_subgraph(owner_id(), subgraph_payload)
+    except ValueError as exc:
+        return jsonify(to_json_ready(ErrorResponse(error=str(exc)))), 400
+    except Exception as exc:
+        return jsonify(to_json_ready(ErrorResponse(error=f"Subgraph query failed: {exc}"))), 500
+    
+    return jsonify(to_json_ready(result))
 
 
 @web_bp.post("/api/llm/generate-graph")
