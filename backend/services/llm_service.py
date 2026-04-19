@@ -1,16 +1,16 @@
-"""LLM integration entry for backend APIs."""
+"""LLM integration entry for backend APIs - refactored as facade/orchestrator."""
 
 from __future__ import annotations
 
-import json
-import re
 from typing import Any
 
-from backend.i18n import (
-    get_llm_prompt_items,
-    get_llm_prompt_text,
-    normalize_prompt_language,
-    render_llm_prompt_template,
+from backend.services.llm_backends import LLMBackend, create_llm_backend
+from backend.services.llm_graph_generation import GraphGenerationPipeline
+from backend.services.llm_graph_review import GraphReviewPipeline
+from backend.services.llm_prompt_builders import build_chat_with_graph_prompt
+from backend.services.llm_schemas import (
+    LLMGraphIssue,
+    LLMGraphReviewAggregate,
 )
 from config import LLMConfig
 from datamodels.ai_llm_models import (
@@ -19,7 +19,7 @@ from datamodels.ai_llm_models import (
     LLMGraphConflict,
     LLMGraphReviewResponse,
 )
-from datamodels.graph_models import ConnectionType, GraphSnapshot
+from datamodels.graph_models import GraphSnapshot
 
 
 API_BACKENDS = {"remote_api", "local_api"}
@@ -27,6 +27,14 @@ RUNTIME_BACKENDS = {"onnxruntime", "openvino"}
 
 
 class LLMService:
+    """Facade/Orchestrator for LLM operations.
+    
+    This class delegates to specialized modules:
+    - llm_backends.py: Backend adapter management
+    - llm_graph_generation.py: Graph generation pipeline
+    - llm_graph_review.py: Graph review pipeline
+    - llm_prompt_builders.py: Prompt construction
+    """
 
     def __init__(
         self,
@@ -37,240 +45,107 @@ class LLMService:
         backend: str | None = None,
     ) -> None:
         config = llm_config or LLMConfig.from_env()
-
         self.config = config
-        self.backend = (backend or config.backend).strip().lower()
-
-        self.api_key: str | None = api_key
-        self.base_url: str = base_url or ""
-        self.model: str = model or ""
-
-        self._client: Any | None = None
-        self._local_backend: Any | None = None
+        
+        # Determine backend type
+        backend_type = (backend or config.backend).strip().lower()
+        
+        # Create appropriate backend
+        try:
+            self._backend: LLMBackend = create_llm_backend(
+                config=config,
+                backend_type=backend_type,
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+            )
+        except Exception as exc:
+            # Create a disabled backend with error message
+            from backend.services.llm_backends import LLMBackend
+            
+            class DisabledBackend(LLMBackend):
+                @property
+                def enabled(self) -> bool:
+                    return False
+                
+                @property
+                def model_name(self) -> str:
+                    return model or config.model
+                
+                def chat_text(self, *args, **kwargs) -> str:
+                    raise RuntimeError(f"Backend disabled: {exc}")
+            
+            self._backend = DisabledBackend()
+        
+        # Initialize pipelines
+        self._generation_pipeline = GraphGenerationPipeline(self._backend)
+        self._review_pipeline = GraphReviewPipeline(self._backend)
+        
         self._disabled_reason: str | None = None
-
-        if self.backend in API_BACKENDS:
-            self._init_api_backend(
-                mode=self.backend,
-                override_api_key=api_key,
-                override_base_url=base_url,
-                override_model=model,
-            )
-        elif self.backend in RUNTIME_BACKENDS:
-            self._init_local_runtime_backend(override_model=model)
-        else:
-            self._disabled_reason = (
-                "Unsupported backend. Use one of: "
-                "remote_api, local_api, onnxruntime, openvino. "
-                f"Current: {self.backend}"
-            )
+        if not self._backend.enabled:
+            self._disabled_reason = f"LLM backend '{backend_type}' is not available."
 
     @property
     def enabled(self) -> bool:
-        if self.backend in API_BACKENDS:
-            return self._client is not None
-        if self.backend in RUNTIME_BACKENDS:
-            return self._local_backend is not None
-        return False
-
-    @staticmethod
-    def _normalize_language(language: str | None) -> str:
-        return normalize_prompt_language(language)
-
-    def _review_system_prompt(self, language: str) -> str:
-        return get_llm_prompt_text(language, "review_system_prompt")
-
-    def _chat_graph_system_prompt(self, language: str) -> str:
-        return get_llm_prompt_text(language, "chat_graph_system_prompt")
-
-    def _graph_generate_system_prompt(self, language: str) -> str:
-        base_prompt = get_llm_prompt_text(language, "graph_generate_system_prompt_base")
-        summary_rule = get_llm_prompt_text(language, "graph_generate_system_summary_rule")
-        connection_rule = get_llm_prompt_text(language, "graph_generate_system_connection_rule")
-        confidence_rule = get_llm_prompt_text(language, "graph_generate_system_confidence_rule")
-        return (
-            f"{base_prompt}\n"
-            f"{summary_rule}\n"
-            f"{connection_rule}\n"
-            f"{confidence_rule}"
-        )
-
-    def _thinking_graph_paradigm(self, language: str) -> tuple[str, ...]:
-        return get_llm_prompt_items(language, "thinking_graph_paradigm")
-
-    def _init_api_backend(
-        self,
-        *,
-        mode: str,
-        override_api_key: str | None,
-        override_base_url: str | None,
-        override_model: str | None,
-    ) -> None:
-        profile = self.config.local_api if mode == "local_api" else self.config.remote_api
-
-        self.base_url = (override_base_url or profile.base_url).strip()
-        self.model = (override_model or profile.model).strip() or profile.model
-        self.api_key = override_api_key if override_api_key is not None else profile.api_key
-
-        # Local API endpoints often do not require a real API key.
-        if mode == "local_api" and not self.api_key:
-            self.api_key = "LOCAL_API_KEY"
-
-        if mode == "remote_api" and not self.api_key:
-            self._disabled_reason = (
-                "Remote API backend is not configured. "
-                "Set `LLM_REMOTE_API_KEY` (or configure [llm.remote_api].api_key)."
-            )
-            return
-
-        try:
-            from openai import OpenAI
-
-            self._client = OpenAI(api_key=self.api_key, base_url=self.base_url)
-        except Exception as exc:
-            self._disabled_reason = f"Failed to initialize API client: {exc}"
-
-    def _init_local_runtime_backend(self, *, override_model: str | None) -> None:
-        runtime_profile = self.config.local_runtime
-
-        self.model = (override_model or runtime_profile.model).strip() or runtime_profile.model
-        self.base_url = ""
-        self.api_key = None
-
-        try:
-            from utils.llm_npu_module import create_local_llm_backend
-
-            self._local_backend = create_local_llm_backend(
-                backend=self.backend,
-                model_root=runtime_profile.model_dir,
-                model_name=self.model,
-                device=runtime_profile.npu_device,
-                require_npu=runtime_profile.require_npu,
-                onnx_provider=runtime_profile.onnx_provider,
-            )
-        except Exception as exc:
-            self._disabled_reason = f"Failed to initialize {self.backend} backend: {exc}"
+        return self._backend.enabled
+    
+    @property
+    def model(self) -> str:
+        return self._backend.model_name
+    
+    @property
+    def backend(self) -> str:
+        return type(self._backend).__name__
 
     def ask(
         self,
         payload: LLMChatRequest,
         graph_snapshot: GraphSnapshot | None = None,
     ) -> LLMChatResponse:
+        """Handle chat requests, optionally with graph context."""
         text = payload.prompt.strip()
         if not text:
             raise ValueError("`prompt` is required.")
-
+        
+        # Attach graph context if provided
         request_payload = payload
         if graph_snapshot is not None:
-            request_payload = self._attach_graph_context(payload, graph_snapshot)
-
+            final_prompt, system_prompt = build_chat_with_graph_prompt(
+                prompt=payload.prompt,
+                graph_snapshot=graph_snapshot,
+                language=payload.language,
+                system_prompt=payload.system_prompt,
+            )
+            request_payload = LLMChatRequest(
+                prompt=final_prompt,
+                system_prompt=system_prompt,
+                temperature=payload.temperature,
+                max_tokens=payload.max_tokens,
+                language=payload.language,
+            )
+        
         if not self.enabled:
             return LLMChatResponse(
                 enabled=False,
-                model=self.model or self.config.model,
-                response=self._disabled_reason
-                or "LLM backend is unavailable. Check backend/runtime configuration.",
+                model=self.model,
+                response=self._disabled_reason or "LLM backend is unavailable.",
             )
-
+        
         try:
-            if self.backend in API_BACKENDS:
-                answer = self._ask_api(request_payload)
-            else:
-                answer = self._ask_local_runtime(request_payload)
+            answer = self._backend.chat_text(
+                prompt=request_payload.prompt,
+                system_prompt=request_payload.system_prompt,
+                temperature=float(request_payload.temperature),
+                max_tokens=max(int(request_payload.max_tokens), 1),
+            )
         except Exception as exc:
             return LLMChatResponse(
                 enabled=False,
-                model=self.model or self.config.model,
-                response=f"{self.backend} request failed: {exc}",
+                model=self.model,
+                response=f"LLM request failed: {exc}",
             )
-
+        
         return LLMChatResponse(enabled=True, model=self.model, response=answer)
-
-    def _attach_graph_context(
-        self,
-        payload: LLMChatRequest,
-        snapshot: GraphSnapshot,
-    ) -> LLMChatRequest:
-        graph_json = self._graph_snapshot_json(snapshot)
-        graph_block = (
-            "[CURRENT_THINKING_GRAPH_JSON]\n"
-            f"{graph_json}\n"
-            "[END_CURRENT_THINKING_GRAPH_JSON]\n"
-        )
-
-        language = self._normalize_language(payload.language)
-        merged_system_prompt = self._chat_graph_system_prompt(language)
-        if payload.system_prompt:
-            merged_system_prompt = (
-                f"{payload.system_prompt.strip()}\n\n{self._chat_graph_system_prompt(language)}"
-            )
-
-        graph_instruction = get_llm_prompt_text(language, "attach_graph_instruction")
-        merged_prompt = f"{payload.prompt.strip()}\n\n{graph_instruction}{graph_block}"
-
-        return LLMChatRequest(
-            prompt=merged_prompt,
-            system_prompt=merged_system_prompt,
-            temperature=payload.temperature,
-            max_tokens=payload.max_tokens,
-            language=language,
-        )
-
-    @staticmethod
-    def _graph_snapshot_json(snapshot: GraphSnapshot) -> str:
-        payload = {
-            "node_count": len(snapshot.nodes),
-            "connection_count": len(snapshot.connections),
-            "nodes": [
-                {
-                    "id": node.id,
-                    "summary": node.summary,
-                    "content": node.content,
-                    "confidence": node.confidence,
-                    "tags": node.tags,
-                    "evidence": node.evidence,
-                }
-                for node in snapshot.nodes
-            ],
-            "connections": [
-                {
-                    "id": conn.id,
-                    "source_id": conn.source_id,
-                    "target_id": conn.target_id,
-                    "conn_type": conn.conn_type,
-                    "description": conn.description,
-                    "strength": conn.strength,
-                }
-                for conn in snapshot.connections
-            ],
-        }
-        return json.dumps(payload, ensure_ascii=False)
-
-    def _ask_api(self, payload: LLMChatRequest) -> str:
-        assert self._client is not None
-
-        messages: list[dict[str, str]] = []
-        if payload.system_prompt:
-            messages.append({"role": "system", "content": payload.system_prompt})
-        messages.append({"role": "user", "content": payload.prompt.strip()})
-
-        completion = self._client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=float(payload.temperature),
-            max_tokens=max(int(payload.max_tokens), 1),
-        )
-        return (completion.choices[0].message.content or "").strip()
-
-    def _ask_local_runtime(self, payload: LLMChatRequest) -> str:
-        assert self._local_backend is not None
-
-        return self._local_backend.generate(
-            payload.prompt,
-            system_prompt=payload.system_prompt,
-            temperature=float(payload.temperature),
-            max_new_tokens=max(int(payload.max_tokens), 1),
-        )
 
     def generate_graph_from_topic(
         self,
@@ -281,716 +156,105 @@ class LLMService:
         max_nodes: int = 18,
         language: str = "zh",
     ) -> dict[str, Any]:
-        normalized_language = self._normalize_language(language)
-        topic_text = topic.strip()
-        if not topic_text:
-            raise ValueError("`topic` is required.")
-
-        normalized_max_nodes = min(max(int(max_nodes), 3), 40)
-
-        if not self.enabled:
+        """Generate a thinking graph from a topic using the new pipeline."""
+        result = self._generation_pipeline.generate(
+            topic=topic,
+            max_nodes=max_nodes,
+            language=language,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        
+        if not result.enabled or not result.draft:
             return {
-                "enabled": False,
-                "model": self.model or self.config.model,
-                "message": self._disabled_reason
-                or "LLM backend is unavailable. Check backend/runtime configuration.",
+                "enabled": result.enabled,
+                "model": result.model,
+                "message": result.message or "Graph generation failed.",
                 "nodes": [],
                 "connections": [],
                 "summary": "",
                 "node_count": 0,
                 "connection_count": 0,
             }
-
-        prompt = self._build_generate_graph_prompt(
-            topic_text,
-            max_nodes=normalized_max_nodes,
-            language=normalized_language,
-        )
-        chat_result = self.ask(
-            LLMChatRequest(
-                prompt=prompt,
-                system_prompt=self._graph_generate_system_prompt(normalized_language),
-                temperature=float(temperature),
-                max_tokens=max(int(max_tokens), 1),
-                language=normalized_language,
-            )
-        )
-        raw_response = (chat_result.response or "").strip()
-
-        if not chat_result.enabled:
-            return {
-                "enabled": False,
-                "model": chat_result.model or self.model or self.config.model,
-                "message": raw_response or "LLM graph generation failed.",
-                "nodes": [],
-                "connections": [],
-                "summary": "",
-                "node_count": 0,
-                "connection_count": 0,
+        
+        # Convert structured draft to legacy dict format for API compatibility
+        nodes = [
+            {
+                "id": node.id,
+                "content": node.content,
+                "summary": node.summary,
+                "confidence": node.confidence,
+                "color": node.color,
+                "tags": node.tags,
+                "evidence": node.evidence,
             }
-
-        payload = self._extract_json_payload(raw_response)
-        if payload is None:
-            return {
-                "enabled": True,
-                "model": chat_result.model or self.model or self.config.model,
-                "message": "LLM did not return valid JSON for graph generation.",
-                "nodes": [],
-                "connections": [],
-                "summary": "",
-                "node_count": 0,
-                "connection_count": 0,
+            for node in result.draft.nodes
+        ]
+        
+        connections = [
+            {
+                "source_id": conn.source_id,
+                "target_id": conn.target_id,
+                "conn_type": conn.conn_type,
+                "description": conn.description,
+                "strength": conn.strength,
             }
-
-        graph_payload = payload
-        nested_payload = payload.get("graph")
-        if isinstance(nested_payload, dict):
-            graph_payload = nested_payload
-
-        nodes, connections = self._normalize_generated_graph_payload(
-            graph_payload,
-            max_nodes=normalized_max_nodes,
-            language=normalized_language,
-        )
-        summary = self._resolve_generated_graph_summary(
-            payload=payload,
-            graph_payload=graph_payload,
-            nodes=nodes,
-            language=normalized_language,
-        )
-
-        if not nodes:
-            return {
-                "enabled": True,
-                "model": chat_result.model or self.model or self.config.model,
-                "message": "LLM did not return valid nodes.",
-                "nodes": [],
-                "connections": [],
-                "summary": summary,
-                "node_count": 0,
-                "connection_count": 0,
-            }
-
+            for conn in result.draft.connections
+        ]
+        
         return {
             "enabled": True,
-            "model": chat_result.model or self.model or self.config.model,
-            "message": "graph generated",
+            "model": result.model,
+            "message": result.message,
             "nodes": nodes,
             "connections": connections,
-            "summary": summary,
+            "summary": result.draft.summary,
             "node_count": len(nodes),
             "connection_count": len(connections),
         }
 
-    def _build_generate_graph_prompt(self, topic: str, *, max_nodes: int, language: str = "zh") -> str:
-        connection_types = " / ".join(sorted(ConnectionType.values()))
-        normalized_language = self._normalize_language(language)
-        return render_llm_prompt_template(
-            normalized_language,
-            "generate_graph_prompt_template",
-            topic=topic,
-            max_nodes=max_nodes,
-            connection_types=connection_types,
-        )
-
-    def _resolve_generated_graph_summary(
-        self,
-        *,
-        payload: dict[str, Any],
-        graph_payload: dict[str, Any],
-        nodes: list[dict[str, Any]],
-        language: str,
-    ) -> str:
-        _ = language
-        for source in (graph_payload, payload):
-            summary = self._extract_summary_text(source)
-            if summary:
-                return summary
-        return self._fallback_graph_summary(nodes)
-
-    @staticmethod
-    def _extract_summary_text(payload: dict[str, Any]) -> str:
-        for field in ("summary", "graph_summary", "overview", "abstract"):
-            value = payload.get(field)
-            if isinstance(value, str):
-                text = value.strip()
-                if text:
-                    return text
-        return ""
-
-    @staticmethod
-    def _fallback_graph_summary(nodes: list[dict[str, Any]]) -> str:
-        highlights: list[str] = []
-        for node in nodes[:3]:
-            if not isinstance(node, dict):
-                continue
-            raw_text = str(node.get("summary", "") or node.get("content", "")).strip()
-            if not raw_text:
-                continue
-            highlights.append(raw_text[:96])
-        if not highlights:
-            return ""
-        return "Core points: " + "; ".join(highlights)
-
-    def _normalize_generated_connection_description(
-        self,
-        *,
-        raw_description: str,
-        conn_type: str,
-        source_node: dict[str, Any] | None,
-        target_node: dict[str, Any] | None,
-        language: str,
-    ) -> str:
-        text = (raw_description or "").strip()
-        invalid_tokens = {"", "none", "n/a", "na", "null", "unknown", "tbd"}
-        if text and text.lower() not in invalid_tokens:
-            return text
-        return self._fallback_generated_connection_description(
-            conn_type=conn_type,
-            source_node=source_node,
-            target_node=target_node,
-            language=language,
-        )
-
-    @staticmethod
-    def _node_hint_text(node: dict[str, Any] | None, *, max_len: int = 28) -> str:
-        if not isinstance(node, dict):
-            return ""
-        raw_text = str(node.get("summary", "") or node.get("content", "")).strip()
-        if not raw_text:
-            return ""
-        if len(raw_text) <= max_len:
-            return raw_text
-        return raw_text[: max_len - 3].rstrip() + "..."
-
-    def _fallback_generated_connection_description(
-        self,
-        *,
-        conn_type: str,
-        source_node: dict[str, Any] | None,
-        target_node: dict[str, Any] | None,
-        language: str,
-    ) -> str:
-        normalized_language = self._normalize_language(language)
-        source_fallback = "source" if normalized_language == "en" else "\u6e90\u8282\u70b9"
-        target_fallback = "target" if normalized_language == "en" else "\u76ee\u6807\u8282\u70b9"
-        source_text = self._node_hint_text(source_node) or source_fallback
-        target_text = self._node_hint_text(target_node) or target_fallback
-
-        if normalized_language == "en":
-            templates = {
-                ConnectionType.SUPPORTS.value: f"{source_text} supports {target_text}.",
-                ConnectionType.OPPOSES.value: f"{source_text} opposes {target_text}.",
-                ConnectionType.RELATES.value: f"{source_text} is related to {target_text}.",
-                ConnectionType.LEADS_TO.value: f"{source_text} may lead to {target_text}.",
-                ConnectionType.DERIVES_FROM.value: f"{source_text} derives from {target_text}.",
-            }
-            return templates.get(conn_type, templates[ConnectionType.RELATES.value])
-
-        templates = {
-            ConnectionType.SUPPORTS.value: f"{source_text} \u652f\u6301 {target_text}\u3002",
-            ConnectionType.OPPOSES.value: f"{source_text} \u53cd\u5bf9 {target_text}\u3002",
-            ConnectionType.RELATES.value: f"{source_text} \u4e0e {target_text} \u76f8\u5173\u3002",
-            ConnectionType.LEADS_TO.value: f"{source_text} \u53ef\u80fd\u5bfc\u81f4 {target_text}\u3002",
-            ConnectionType.DERIVES_FROM.value: f"{source_text} \u6e90\u81ea {target_text}\u3002",
-        }
-        return templates.get(conn_type, templates[ConnectionType.RELATES.value])
-
-    def _normalize_generated_graph_payload(
-        self,
-        payload: dict[str, Any],
-        *,
-        max_nodes: int,
-        language: str,
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        raw_nodes = payload.get("nodes")
-        if not isinstance(raw_nodes, list):
-            return [], []
-
-        nodes: list[dict[str, Any]] = []
-        used_node_ids: set[str] = set()
-
-        for index, item in enumerate(raw_nodes, start=1):
-            if not isinstance(item, dict):
-                continue
-
-            content = str(item.get("content", "")).strip()
-            if not content:
-                continue
-
-            raw_id = str(item.get("id", "")).strip() or f"N{index}"
-            node_id = raw_id
-            suffix = 2
-            while node_id in used_node_ids:
-                node_id = f"{raw_id}_{suffix}"
-                suffix += 1
-            used_node_ids.add(node_id)
-
-            summary = str(item.get("summary", "")).strip()
-            confidence = self._clamp_float(
-                self._to_float(item.get("confidence"), 1.0),
-                0.0,
-                1.0,
-            )
-            color = self._normalize_hex_color(
-                str(item.get("color", "")).strip() or None
-            )
-
-            nodes.append(
-                {
-                    "id": node_id,
-                    "content": content,
-                    "summary": summary,
-                    "confidence": confidence,
-                    "color": color,
-                }
-            )
-            if len(nodes) >= max_nodes:
-                break
-
-        if not nodes:
-            return [], []
-        self._ensure_generated_confidence_variation(nodes, language=language)
-
-        node_ids = {node["id"] for node in nodes}
-        node_by_id = {node["id"]: node for node in nodes}
-        raw_connections = payload.get("connections")
-        connections: list[dict[str, Any]] = []
-
-        if not isinstance(raw_connections, list):
-            return nodes, connections
-
-        for item in raw_connections:
-            if not isinstance(item, dict):
-                continue
-
-            source_id = str(item.get("source_id", "")).strip()
-            target_id = str(item.get("target_id", "")).strip()
-            if (
-                not source_id
-                or not target_id
-                or source_id == target_id
-                or source_id not in node_ids
-                or target_id not in node_ids
-            ):
-                continue
-
-            conn_type = str(
-                item.get("conn_type", ConnectionType.RELATES.value)
-            ).strip()
-            if conn_type not in ConnectionType.values():
-                conn_type = ConnectionType.RELATES.value
-
-            description = self._normalize_generated_connection_description(
-                raw_description=str(item.get("description", "")),
-                conn_type=conn_type,
-                source_node=node_by_id.get(source_id),
-                target_node=node_by_id.get(target_id),
-                language=language,
-            )
-            strength = self._clamp_float(
-                self._to_float(item.get("strength"), 1.0),
-                0.1,
-                3.0,
-            )
-
-            connections.append(
-                {
-                    "source_id": source_id,
-                    "target_id": target_id,
-                    "conn_type": conn_type,
-                    "description": description,
-                    "strength": strength,
-                }
-            )
-
-        return nodes, connections
-
-    def _ensure_generated_confidence_variation(
-        self,
-        nodes: list[dict[str, Any]],
-        *,
-        language: str,
-    ) -> None:
-        _ = language
-        if len(nodes) < 2:
-            return
-
-        rounded_values = {
-            round(self._to_float(node.get("confidence"), 1.0), 3)
-            for node in nodes
-        }
-        if len(rounded_values) >= 2:
-            return
-
-        base = self._clamp_float(
-            self._to_float(nodes[0].get("confidence"), 0.7),
-            0.0,
-            1.0,
-        )
-        # Build a small descending spread around the original confidence
-        # so generated nodes are not assigned identical confidence values.
-        span = min(0.4, 0.1 * max(len(nodes) - 1, 1))
-        center = self._clamp_float(base, span / 2, 1.0 - span / 2)
-        start = center + span / 2
-        end = center - span / 2
-        step = (start - end) / max(len(nodes) - 1, 1)
-
-        for index, node in enumerate(nodes):
-            value = self._clamp_float(start - index * step, 0.0, 1.0)
-            node["confidence"] = round(value, 3)
-
     def review_graph(self, snapshot: GraphSnapshot, *, language: str = "zh") -> LLMGraphReviewResponse:
-        normalized_language = self._normalize_language(language)
-        rule_conflicts = self._rule_based_conflicts(snapshot, language=normalized_language)
-        llm_conflicts: list[LLMGraphConflict] = []
-        raw_response = ""
-
-        if self.enabled:
-            prompt = self._build_review_prompt(snapshot, language=normalized_language)
-            chat_result = self.ask(
-                LLMChatRequest(
-                    prompt=prompt,
-                    system_prompt=self._review_system_prompt(normalized_language),
-                    temperature=0.0,
-                    max_tokens=900,
-                    language=normalized_language,
-                )
+        """Review a thinking graph using the new multi-layer pipeline."""
+        aggregate = self._review_pipeline.review(snapshot, language)
+        
+        # Convert new schema to legacy response format for API compatibility
+        conflicts = [
+            LLMGraphConflict(
+                entity_type=issue.entity_type,
+                entity_id=issue.entity_id,
+                reason=issue.reason,
             )
-            raw_response = (chat_result.response or "").strip()
-            llm_conflicts = self._parse_review_response(
-                raw_response,
-                language=normalized_language,
-            )
+            for issue in aggregate.conflicts
+        ]
+        
+        # Generate response text
+        if aggregate.verdict == "OK":
+            response_text = "OK"
         else:
-            raw_response = self._disabled_reason or "LLM backend is unavailable."
-
-        conflicts = self._merge_conflicts(
-            rule_conflicts + llm_conflicts,
-            language=normalized_language,
-        )
-        verdict = "OK" if not conflicts else "CONFLICT"
-
-        response_text = "OK" if verdict == "OK" else (
-            raw_response or self._conflicts_to_text(conflicts)
-        )
-
+            response_text = aggregate.overview or self._conflicts_to_text(conflicts)
+        
+        # Get paradigm items
+        from backend.i18n import get_llm_prompt_items, normalize_prompt_language
+        normalized_language = normalize_prompt_language(language)
+        paradigm = list(get_llm_prompt_items(normalized_language, "thinking_graph_paradigm"))
+        
         return LLMGraphReviewResponse(
             enabled=self.enabled,
-            model=self.model or self.config.model,
-            verdict=verdict,
+            model=self.model,
+            verdict=aggregate.verdict,
             conflicts=conflicts,
             response=response_text,
-            paradigm=list(self._thinking_graph_paradigm(normalized_language)),
+            paradigm=paradigm,
         )
-
-    def _build_review_prompt(self, snapshot: GraphSnapshot, *, language: str = "zh") -> str:
-        normalized_language = self._normalize_language(language)
-        paradigm_text = "\n".join(
-            f"{index}. {item}"
-            for index, item in enumerate(self._thinking_graph_paradigm(normalized_language), start=1)
-        )
-
-        graph_payload = {
-            "node_count": len(snapshot.nodes),
-            "connection_count": len(snapshot.connections),
-            "nodes": [
-                {
-                    "id": node.id,
-                    "summary": node.summary,
-                    "content": node.content,
-                    "confidence": node.confidence,
-                    "tags": node.tags,
-                    "evidence": node.evidence,
-                }
-                for node in snapshot.nodes
-            ],
-            "connections": [
-                {
-                    "id": conn.id,
-                    "source_id": conn.source_id,
-                    "target_id": conn.target_id,
-                    "conn_type": conn.conn_type,
-                    "description": conn.description,
-                    "strength": conn.strength,
-                }
-                for conn in snapshot.connections
-            ],
-        }
-
-        graph_json = json.dumps(graph_payload, ensure_ascii=False)
-        return render_llm_prompt_template(
-            normalized_language,
-            "review_prompt_template",
-            paradigm_text=paradigm_text,
-            graph_json=graph_json,
-        )
-
-    def _rule_based_conflicts(
-        self,
-        snapshot: GraphSnapshot,
-        *,
-        language: str = "zh",
-    ) -> list[LLMGraphConflict]:
-        normalized_language = self._normalize_language(language)
-        conflicts: list[LLMGraphConflict] = []
-        node_ids = {node.id for node in snapshot.nodes}
-        connection_types = ConnectionType.values()
-
-        if normalized_language == "en":
-            node_empty_reason = "Node content is empty."
-            self_loop_reason = "Connection is a self-loop (source_id == target_id)."
-            invalid_node_ref_reason = "Connection references a non-existing node id."
-            invalid_conn_type_prefix = "Invalid connection type"
-            contradictory_reason_template = (
-                "Both supports and opposes exist for the same directed pair: {source} -> {target}"
-            )
-        else:
-            node_empty_reason = "\u8282\u70b9 content \u4e3a\u7a7a\u3002"
-            self_loop_reason = "\u8fde\u63a5\u5b58\u5728\u81ea\u73af (source_id == target_id)\u3002"
-            invalid_node_ref_reason = "\u8fde\u63a5\u5f15\u7528\u4e86\u4e0d\u5b58\u5728\u7684\u8282\u70b9 id\u3002"
-            invalid_conn_type_prefix = "\u8fde\u63a5\u7c7b\u578b\u65e0\u6548"
-            contradictory_reason_template = (
-                "\u540c\u4e00\u65b9\u5411\u8282\u70b9\u540c\u65f6\u5b58\u5728 supports \u4e0e opposes \u5173\u7cfb: {source} -> {target}"
-            )
-
-        for node in snapshot.nodes:
-            if not node.content.strip():
-                conflicts.append(
-                    LLMGraphConflict(
-                        entity_type="node",
-                        entity_id=node.id,
-                        reason=node_empty_reason,
-                    )
-                )
-
-        pair_types: dict[tuple[str, str], set[str]] = {}
-        pair_connections: dict[tuple[str, str], list[str]] = {}
-
-        for conn in snapshot.connections:
-            if conn.source_id == conn.target_id:
-                conflicts.append(
-                    LLMGraphConflict(
-                        entity_type="connection",
-                        entity_id=conn.id,
-                        reason=self_loop_reason,
-                    )
-                )
-
-            if conn.source_id not in node_ids or conn.target_id not in node_ids:
-                conflicts.append(
-                    LLMGraphConflict(
-                        entity_type="connection",
-                        entity_id=conn.id,
-                        reason=invalid_node_ref_reason,
-                    )
-                )
-
-            if conn.conn_type not in connection_types:
-                conflicts.append(
-                    LLMGraphConflict(
-                        entity_type="connection",
-                        entity_id=conn.id,
-                        reason=f"{invalid_conn_type_prefix}: {conn.conn_type}",
-                    )
-                )
-
-            pair_key = (conn.source_id, conn.target_id)
-            pair_types.setdefault(pair_key, set()).add(conn.conn_type)
-            pair_connections.setdefault(pair_key, []).append(conn.id)
-
-        for pair_key, kinds in pair_types.items():
-            if (
-                ConnectionType.SUPPORTS.value in kinds
-                and ConnectionType.OPPOSES.value in kinds
-            ):
-                source_id, target_id = pair_key
-                for conn_id in pair_connections.get(pair_key, []):
-                    conflicts.append(
-                        LLMGraphConflict(
-                            entity_type="connection",
-                            entity_id=conn_id,
-                            reason=contradictory_reason_template.format(
-                                source=source_id,
-                                target=target_id,
-                            ),
-                        )
-                    )
-
-        return self._merge_conflicts(conflicts, language=normalized_language)
-
-    def _parse_review_response(
-        self,
-        raw_response: str,
-        *,
-        language: str = "zh",
-    ) -> list[LLMGraphConflict]:
-        normalized_language = self._normalize_language(language)
-        payload = self._extract_json_payload(raw_response)
-        if payload is None:
-            return self._heuristic_conflicts(raw_response)
-
-        result = str(payload.get("result", "")).strip().upper()
-        if result == "OK":
-            return []
-
-        conflicts_raw = payload.get("conflicts")
-        conflicts: list[LLMGraphConflict] = []
-        default_reason = (
-            "No reason provided."
-            if normalized_language == "en"
-            else "\u672a\u63d0\u4f9b\u539f\u56e0\u3002"
-        )
-
-        if isinstance(conflicts_raw, list):
-            for item in conflicts_raw:
-                if isinstance(item, dict):
-                    entity_type = str(item.get("entity_type", "global")).strip() or "global"
-                    entity_id = str(item.get("entity_id", "global")).strip() or "global"
-                    reason = str(item.get("reason", default_reason)).strip() or default_reason
-                    conflicts.append(
-                        LLMGraphConflict(
-                            entity_type=entity_type,
-                            entity_id=entity_id,
-                            reason=reason,
-                        )
-                    )
-                elif isinstance(item, str):
-                    text = item.strip()
-                    if text:
-                        conflicts.append(
-                            LLMGraphConflict(
-                                entity_type="global",
-                                entity_id="global",
-                                reason=text,
-                            )
-                        )
-
-        if not conflicts and result and result != "OK":
-            fallback_reason = (
-                "LLM marked CONFLICT but did not return a structured conflicts list."
-                if normalized_language == "en"
-                else "LLM \u6807\u8bb0\u4e86\u51b2\u7a81\uff0c\u4f46\u672a\u8fd4\u56de\u7ed3\u6784\u5316 conflicts \u5217\u8868\u3002"
-            )
-            conflicts.append(
-                LLMGraphConflict(
-                    entity_type="global",
-                    entity_id="global",
-                    reason=fallback_reason,
-                )
-            )
-        return self._merge_conflicts(conflicts, language=normalized_language)
-
-    @staticmethod
-    def _extract_json_payload(raw_response: str) -> dict[str, Any] | None:
-        text = (raw_response or "").strip()
-        if not text:
-            return None
-
-        if text.startswith("```"):
-            text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-            text = re.sub(r"\s*```$", "", text).strip()
-
-        candidates = [text]
-        start = text.find("{")
-        end = text.rfind("}")
-        if 0 <= start < end:
-            candidates.append(text[start : end + 1])
-
-        for candidate in candidates:
-            try:
-                payload = json.loads(candidate)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(payload, dict):
-                return payload
-
-        return None
-
-    @staticmethod
-    def _heuristic_conflicts(raw_response: str) -> list[LLMGraphConflict]:
-        text = (raw_response or "").strip()
-        if not text:
-            return []
-
-        lowered = text.lower()
-        if lowered == "ok":
-            return []
-
-        if "conflict" in lowered or "\u51b2\u7a81" in text or "\u65e0\u6548" in text:
-            return [
-                LLMGraphConflict(
-                    entity_type="global",
-                    entity_id="global",
-                    reason=text,
-                )
-            ]
-
-        return []
-
-    @staticmethod
-    def _merge_conflicts(
-        conflicts: list[LLMGraphConflict],
-        *,
-        language: str = "zh",
-    ) -> list[LLMGraphConflict]:
-        normalized_language = "en" if (language or "").strip().lower() == "en" else "zh"
-        default_reason = (
-            "No reason provided."
-            if normalized_language == "en"
-            else "\u672a\u63d0\u4f9b\u539f\u56e0\u3002"
-        )
-
-        merged: list[LLMGraphConflict] = []
-        seen: set[tuple[str, str, str]] = set()
-
-        for conflict in conflicts:
-            key = (
-                conflict.entity_type.strip() or "global",
-                conflict.entity_id.strip() or "global",
-                conflict.reason.strip(),
-            )
-            if key in seen:
-                continue
-            seen.add(key)
-            merged.append(
-                LLMGraphConflict(
-                    entity_type=key[0],
-                    entity_id=key[1],
-                    reason=key[2] or default_reason,
-                )
-            )
-
-        return merged
-
+    
     @staticmethod
     def _conflicts_to_text(conflicts: list[LLMGraphConflict]) -> str:
+        """Convert conflicts list to text representation."""
         if not conflicts:
             return "OK"
-
+        
         rows = [
             f"[{item.entity_type}] {item.entity_id}: {item.reason}"
             for item in conflicts
         ]
         return "\n".join(rows)
-
-    @staticmethod
-    def _to_float(value: object, default: float) -> float:
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            try:
-                return float(value)
-            except ValueError:
-                return default
-        return default
-
-    @staticmethod
-    def _clamp_float(value: float, low: float, high: float) -> float:
-        return min(max(value, low), high)
-
-    @staticmethod
-    def _normalize_hex_color(value: str | None) -> str:
-        if value and re.fullmatch(r"#(?:[0-9a-fA-F]{6})", value):
-            return value.lower()
-        return "#157f83"

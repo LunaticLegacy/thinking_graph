@@ -1,45 +1,46 @@
-﻿# 配置文件模板
-# 请在使用前，复制该文件并命名为 app_config.toml，并填写自己的属性
+# Copy this file to `app_config.toml` before first run.
 
 [server]
 host = "0.0.0.0"
 port = 5000
-debug = true
-enable_cors = true
+debug = false
+enable_cors = false
+allow_runtime_settings_write = false
+allow_db_fallback = false
+trusted_proxy_hops = 0
+
+[auth]
+secret_key = "change-this-in-production"
+trusted_identity_header = ""
+session_cookie_name = "thinking_graph_session"
+session_cookie_secure = true
+session_cookie_samesite = "Lax"
+session_cookie_domain = ""
+permanent_session_days = 30
 
 [paths]
 template_dir = "templates"
 static_dir = "static"
 data_dir = "data"
 project_db_path = "data/thinking_graph.db"
-# 备用数据库路径（仅作为兜底保留，不作为主连接默认值）
 default_db_path = ""
 
 [database]
-# 数据库连接配置；为空时默认使用 [paths].project_db_path
 db_path = ""
 
 [llm]
-# 后端类型
-# - remote_api  : 远程 API 调用
-# - local_api   : 本地 API 服务（Ollama / LM Studio / vLLM 的 OpenAI 接口）
-# - onnxruntime : 使用 NPU 加速的 ONNXRuntime
-# - openvino    : 使用 NPU 加速的 OpenVINO
 backend = "remote_api"
 
-# 远程 API 设置
 [llm.remote_api]
 api_key = ""
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
 
-# 本地 API（OpenAI 格式接口）
 [llm.local_api]
 api_key = ""
 base_url = "http://127.0.0.1:11434/v1"
 model = "qwen2.5:7b"
 
-# 本地运行时（仅 onnxruntime/openvino 使用）
 [llm.local_runtime]
 model = "qwen2.5-7b-instruct"
 model_dir = "models"

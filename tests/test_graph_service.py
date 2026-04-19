@@ -13,12 +13,16 @@ from datamodels.graph_models import (
 )
 
 
+TEST_OWNER_ID = "owner-test-user"
+OTHER_OWNER_ID = "owner-other-user"
+
+
 class TestGraphServiceNodes:
     """Test suite for node operations."""
 
     def test_create_node_success(self, graph_service: GraphService, sample_node_payload: NodeCreatePayload):
         """Should create a node successfully."""
-        node = graph_service.create_node(sample_node_payload, actor="test-user")
+        node = graph_service.create_node(TEST_OWNER_ID, sample_node_payload, actor="test-user")
         
         assert node.content == "Test node content"
         assert node.summary == "Test summary"
@@ -46,7 +50,7 @@ class TestGraphServiceNodes:
         )
         
         with pytest.raises(ValueError, match="content"):
-            graph_service.create_node(payload, actor="test-user")
+            graph_service.create_node(TEST_OWNER_ID, payload, actor="test-user")
 
     def test_create_node_strips_whitespace(self, graph_service: GraphService):
         """Should strip whitespace from content and summary."""
@@ -61,13 +65,13 @@ class TestGraphServiceNodes:
             evidence=[],
         )
         
-        node = graph_service.create_node(payload, actor="test-user")
+        node = graph_service.create_node(TEST_OWNER_ID, payload, actor="test-user")
         assert node.content == "Content with spaces"
         assert node.summary == "Summary with spaces"
 
     def test_list_nodes_empty(self, graph_service: GraphService):
         """Should return empty list when no nodes."""
-        nodes = graph_service.list_nodes()
+        nodes = graph_service.list_nodes(TEST_OWNER_ID)
         assert nodes == []
 
     def test_list_nodes_excludes_deleted_by_default(self, graph_service: GraphService):
@@ -83,23 +87,32 @@ class TestGraphServiceNodes:
             confidence=1.0,
             evidence=[],
         )
-        node = graph_service.create_node(payload, actor="test-user")
+        node = graph_service.create_node(TEST_OWNER_ID, payload, actor="test-user")
         
         # Soft delete it
-        graph_service.delete_node(node.id, actor="test-user")
+        graph_service.delete_node(TEST_OWNER_ID, node.id, actor="test-user")
         
         # Should not appear in default list
-        nodes = graph_service.list_nodes()
+        nodes = graph_service.list_nodes(TEST_OWNER_ID)
         assert len(nodes) == 0
         
         # Should appear when include_deleted=True
-        nodes = graph_service.list_nodes(include_deleted=True)
+        nodes = graph_service.list_nodes(TEST_OWNER_ID, include_deleted=True)
         assert len(nodes) == 1
 
     def test_get_node_not_found(self, graph_service: GraphService):
         """Should return None for non-existent node."""
-        result = graph_service.get_node("non-existent-id")
+        result = graph_service.get_node(TEST_OWNER_ID, "non-existent-id")
         assert result is None
+
+    def test_nodes_are_isolated_by_owner(self, graph_service: GraphService, sample_node_payload: NodeCreatePayload):
+        """Should scope node queries by owner."""
+        node = graph_service.create_node(TEST_OWNER_ID, sample_node_payload, actor="test-user")
+
+        assert graph_service.get_node(TEST_OWNER_ID, node.id) is not None
+        assert graph_service.get_node(OTHER_OWNER_ID, node.id) is None
+        assert len(graph_service.list_nodes(TEST_OWNER_ID)) == 1
+        assert graph_service.list_nodes(OTHER_OWNER_ID) == []
 
 
 class TestGraphServiceConnections:
@@ -113,7 +126,7 @@ class TestGraphServiceConnections:
     ):
         """Should create a connection between two nodes."""
         # Create two nodes first
-        node1 = graph_service.create_node(sample_node_payload, actor="test-user")
+        node1 = graph_service.create_node(TEST_OWNER_ID, sample_node_payload, actor="test-user")
         node2_payload = NodeCreatePayload(
             content="Second node",
             summary="",
@@ -124,7 +137,7 @@ class TestGraphServiceConnections:
             confidence=1.0,
             evidence=[],
         )
-        node2 = graph_service.create_node(node2_payload, actor="test-user")
+        node2 = graph_service.create_node(TEST_OWNER_ID, node2_payload, actor="test-user")
         
         # Update payload with actual node IDs
         from datamodels.graph_models import ConnectionCreatePayload
@@ -136,7 +149,7 @@ class TestGraphServiceConnections:
             strength=0.9,
         )
         
-        conn = graph_service.create_connection(conn_payload, actor="test-user")
+        conn = graph_service.create_connection(TEST_OWNER_ID, conn_payload, actor="test-user")
         
         assert conn.source_id == node1.id
         assert conn.target_id == node2.id
@@ -151,7 +164,7 @@ class TestGraphServiceConnections:
         sample_node_payload: NodeCreatePayload,
     ):
         """Should raise ValueError for self-loop connections."""
-        node = graph_service.create_node(sample_node_payload, actor="test-user")
+        node = graph_service.create_node(TEST_OWNER_ID, sample_node_payload, actor="test-user")
         
         from datamodels.graph_models import ConnectionCreatePayload
         payload = ConnectionCreatePayload(
@@ -163,7 +176,7 @@ class TestGraphServiceConnections:
         )
         
         with pytest.raises(ValueError, match="Self-loop"):
-            graph_service.create_connection(payload, actor="test-user")
+            graph_service.create_connection(TEST_OWNER_ID, payload, actor="test-user")
 
     def test_create_connection_nonexistent_source_raises(
         self, 
@@ -171,7 +184,7 @@ class TestGraphServiceConnections:
         sample_node_payload: NodeCreatePayload,
     ):
         """Should raise ValueError for non-existent source node."""
-        node = graph_service.create_node(sample_node_payload, actor="test-user")
+        node = graph_service.create_node(TEST_OWNER_ID, sample_node_payload, actor="test-user")
         
         from datamodels.graph_models import ConnectionCreatePayload
         payload = ConnectionCreatePayload(
@@ -183,4 +196,4 @@ class TestGraphServiceConnections:
         )
         
         with pytest.raises(ValueError, match="Source/target node"):
-            graph_service.create_connection(payload, actor="test-user")
+            graph_service.create_connection(TEST_OWNER_ID, payload, actor="test-user")

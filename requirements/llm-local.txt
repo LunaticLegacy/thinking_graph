@@ -1,0 +1,7 @@
+# Local LLM inference dependencies - for ONNX/OpenVINO backends
+onnxruntime==1.24.2
+onnxruntime-genai
+openvino==2026.0.0
+openvino-genai
+optimum[openvino]
+optimum-intel

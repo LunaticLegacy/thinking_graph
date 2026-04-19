@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from web import create_app
@@ -65,6 +67,70 @@ class TestAppRoutes:
         
         if response.status_code == 200:
             assert response.content_type == "application/json"
+
+    def test_api_routes_isolate_users_by_session(self, app_config: RuntimeConfig):
+        """Separate clients should not share graph data."""
+        app = create_app(app_config)
+        app.config["TESTING"] = True
+
+        client_a = app.test_client()
+        client_b = app.test_client()
+
+        create_response = client_a.post(
+            "/api/nodes",
+            json={"content": "Alice node", "summary": "A"},
+        )
+        assert create_response.status_code == 201
+
+        nodes_a = client_a.get("/api/nodes")
+        nodes_b = client_b.get("/api/nodes")
+        assert nodes_a.status_code == 200
+        assert nodes_b.status_code == 200
+
+        payload_a = nodes_a.get_json() or {}
+        payload_b = nodes_b.get_json() or {}
+        assert len(payload_a.get("nodes", [])) == 1
+        assert payload_b.get("nodes", []) == []
+
+    def test_settings_route_masks_secrets_and_blocks_runtime_write(
+        self,
+        app_config: RuntimeConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ):
+        """Settings endpoint should not leak secrets or allow writes by default."""
+        config_path = tmp_path / "app_config.toml"
+        config_path.write_text(
+            """
+[llm]
+backend = "remote_api"
+
+[llm.remote_api]
+api_key = "super-secret-key"
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o-mini"
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("APP_CONFIG_FILE", str(config_path))
+
+        app = create_app(app_config)
+        app.config["TESTING"] = True
+        client = app.test_client()
+
+        get_response = client.get("/api/settings")
+        assert get_response.status_code == 200
+        payload = get_response.get_json() or {}
+        assert payload.get("editable") is False
+        assert payload["llm"]["remote_api"]["api_key"] == ""
+        assert payload["llm"]["remote_api"]["api_key_configured"] is True
+
+        put_response = client.put(
+            "/api/settings",
+            json={"llm": {"backend": "remote_api"}},
+        )
+        assert put_response.status_code == 403
 
 
 class TestFallbackBehavior:

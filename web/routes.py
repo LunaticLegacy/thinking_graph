@@ -9,7 +9,8 @@ import os
 import re
 from typing import Mapping
 
-from flask import Blueprint, current_app, jsonify, render_template, request
+from flask import Blueprint, current_app, g, jsonify, render_template, request
+from werkzeug.exceptions import Forbidden, Unauthorized
 
 from backend.services import LLMService
 from config import LLMConfig
@@ -34,7 +35,10 @@ from datamodels.graph_models import (
     NodesResponse,
     OkResponse,
     SavedGraphsResponse,
+    SubgraphQueryPayload,
 )
+
+from web.identity import RequestIdentity, resolve_request_identity
 
 web_bp = Blueprint("web", __name__)
 
@@ -312,8 +316,82 @@ def llm_service():
     return current_app.extensions["llm_service"]
 
 
+def current_identity() -> RequestIdentity:
+    identity = getattr(g, "request_identity", None)
+    if isinstance(identity, RequestIdentity):
+        return identity
+
+    runtime = runtime_config()
+    if runtime is None or not hasattr(runtime, "auth"):
+        raise Unauthorized("runtime auth configuration is unavailable")
+
+    try:
+        identity = resolve_request_identity(runtime.auth, request)
+    except PermissionError as exc:
+        raise Unauthorized(str(exc)) from exc
+
+    g.request_identity = identity
+    return identity
+
+
+def owner_id() -> str:
+    return current_identity().owner_id
+
+
 def actor_name() -> str:
-    return request.headers.get("X-Actor", "frontend-user")
+    return current_identity().actor
+
+
+def settings_write_allowed() -> bool:
+    runtime = runtime_config()
+    if runtime is None or not hasattr(runtime, "server"):
+        return False
+    return bool(runtime.server.allow_runtime_settings_write)
+
+
+def _llm_settings_response(llm_settings: Mapping[str, object] | None) -> dict[str, Any]:
+    normalized = _normalize_llm_settings(llm_settings)
+    remote_api = _as_mapping(normalized.get("remote_api"))
+    local_api = _as_mapping(normalized.get("local_api"))
+
+    return {
+        "backend": normalized.get("backend", "remote_api"),
+        "remote_api": {
+            "api_key": "",
+            "api_key_configured": bool(_as_str(remote_api.get("api_key"), "")),
+            "base_url": _as_str(remote_api.get("base_url"), ""),
+            "model": _as_str(remote_api.get("model"), ""),
+        },
+        "local_api": {
+            "api_key": "",
+            "api_key_configured": bool(_as_str(local_api.get("api_key"), "")),
+            "base_url": _as_str(local_api.get("base_url"), ""),
+            "model": _as_str(local_api.get("model"), ""),
+        },
+        "local_runtime": _as_mapping(normalized.get("local_runtime")),
+    }
+
+
+def _merge_llm_settings(
+    existing: Mapping[str, object] | None,
+    incoming: Mapping[str, object] | None,
+) -> dict[str, Any]:
+    merged = _normalize_llm_settings(incoming)
+    existing_normalized = _normalize_llm_settings(existing)
+
+    for backend_name in ("remote_api", "local_api"):
+        merged_backend = dict(_as_mapping(merged.get(backend_name)))
+        existing_backend = _as_mapping(existing_normalized.get(backend_name))
+
+        incoming_key = _as_str(merged_backend.get("api_key"), "")
+        if incoming_key:
+            merged_backend["api_key"] = incoming_key
+        else:
+            merged_backend["api_key"] = _as_str(existing_backend.get("api_key"), "")
+
+        merged[backend_name] = merged_backend
+
+    return merged
 
 
 def payload_mapping() -> Mapping[str, object]:
@@ -333,6 +411,16 @@ def to_json_ready(value: object) -> object:
     return value
 
 
+@web_bp.errorhandler(Unauthorized)
+def handle_unauthorized(exc: Unauthorized):
+    return jsonify(to_json_ready(ErrorResponse(error=exc.description))), 401
+
+
+@web_bp.errorhandler(Forbidden)
+def handle_forbidden(exc: Forbidden):
+    return jsonify(to_json_ready(ErrorResponse(error=exc.description))), 403
+
+
 @web_bp.get("/")
 def index():
     return render_template("index.html")
@@ -345,7 +433,7 @@ def health_check():
 
 @web_bp.get("/api/graph")
 def get_graph():
-    return jsonify(to_json_ready(graph_service().graph_snapshot()))
+    return jsonify(to_json_ready(graph_service().graph_snapshot(owner_id())))
 
 
 @web_bp.get("/api/settings")
@@ -356,10 +444,11 @@ def get_settings():
     except Exception as exc:
         return jsonify(to_json_ready(ErrorResponse(error=f"failed to read app_config: {exc}"))), 500
 
-    llm_settings = _normalize_llm_settings(_as_mapping(config_doc.get("llm")))
+    llm_settings = _llm_settings_response(_as_mapping(config_doc.get("llm")))
     return jsonify(
         {
-            "config_path": str(config_path),
+            "config_source": config_path.name,
+            "editable": settings_write_allowed(),
             "llm": llm_settings,
         }
     )
@@ -367,9 +456,11 @@ def get_settings():
 
 @web_bp.put("/api/settings")
 def update_settings():
+    if not settings_write_allowed():
+        raise Forbidden("runtime settings updates are disabled on this deployment")
+
     incoming = payload_mapping()
     llm_block = _as_mapping(incoming.get("llm")) if "llm" in incoming else incoming
-    llm_settings = _normalize_llm_settings(llm_block)
 
     config_path = app_config_path()
     try:
@@ -377,6 +468,7 @@ def update_settings():
     except Exception as exc:
         return jsonify(to_json_ready(ErrorResponse(error=f"failed to read app_config: {exc}"))), 500
 
+    llm_settings = _merge_llm_settings(_as_mapping(config_doc.get("llm")), llm_block)
     config_doc["llm"] = llm_settings
 
     try:
@@ -399,8 +491,9 @@ def update_settings():
     return jsonify(
         {
             "ok": True,
-            "config_path": str(config_path),
-            "llm": llm_settings,
+            "config_source": config_path.name,
+            "editable": settings_write_allowed(),
+            "llm": _llm_settings_response(llm_settings),
         }
     )
 
@@ -409,12 +502,19 @@ def update_settings():
 def nodes():
     if request.method == "GET":
         include_deleted = request.args.get("include_deleted", "false").lower() == "true"
-        response = NodesResponse(nodes=graph_service().list_nodes(include_deleted=include_deleted))
+        response = NodesResponse(
+            nodes=graph_service().list_nodes(owner_id(), include_deleted=include_deleted)
+        )
         return jsonify(to_json_ready(response))
 
     payload = NodeCreatePayload.from_mapping(payload_mapping())
     try:
-        node = graph_service().create_node(payload, actor=actor_name(), reason=payload.reason)
+        node = graph_service().create_node(
+            owner_id(),
+            payload,
+            actor=actor_name(),
+            reason=payload.reason,
+        )
     except ValueError as exc:
         return jsonify(to_json_ready(ErrorResponse(error=str(exc)))), 400
     return jsonify(to_json_ready(node)), 201
@@ -423,7 +523,7 @@ def nodes():
 @web_bp.route("/api/nodes/<node_id>", methods=["GET", "PATCH", "DELETE"])
 def node_detail(node_id: str):
     if request.method == "GET":
-        node = graph_service().get_node(node_id)
+        node = graph_service().get_node(owner_id(), node_id)
         if not node:
             return jsonify(to_json_ready(ErrorResponse(error="node not found"))), 404
         return jsonify(to_json_ready(node))
@@ -432,6 +532,7 @@ def node_detail(node_id: str):
         payload = NodeUpdatePayload.from_mapping(payload_mapping())
         try:
             updated = graph_service().update_node(
+                owner_id=owner_id(),
                 node_id=node_id,
                 payload=payload,
                 actor=actor_name(),
@@ -445,7 +546,12 @@ def node_detail(node_id: str):
         return jsonify(to_json_ready(updated))
 
     payload = DeletePayload.from_mapping(payload_mapping())
-    ok = graph_service().delete_node(node_id=node_id, actor=actor_name(), payload=payload)
+    ok = graph_service().delete_node(
+        owner_id=owner_id(),
+        node_id=node_id,
+        actor=actor_name(),
+        payload=payload,
+    )
     if not ok:
         return jsonify(to_json_ready(ErrorResponse(error="node not found"))), 404
     return jsonify(to_json_ready(OkResponse()))
@@ -456,13 +562,14 @@ def connections():
     if request.method == "GET":
         include_deleted = request.args.get("include_deleted", "false").lower() == "true"
         response = ConnectionsResponse(
-            connections=graph_service().list_connections(include_deleted=include_deleted)
+            connections=graph_service().list_connections(owner_id(), include_deleted=include_deleted)
         )
         return jsonify(to_json_ready(response))
 
     payload = ConnectionCreatePayload.from_mapping(payload_mapping())
     try:
         connection = graph_service().create_connection(
+            owner_id=owner_id(),
             payload=payload,
             actor=actor_name(),
             reason=payload.reason,
@@ -478,6 +585,7 @@ def connection_detail(connection_id: str):
         payload = ConnectionUpdatePayload.from_mapping(payload_mapping())
         try:
             updated = graph_service().update_connection(
+                owner_id=owner_id(),
                 conn_id=connection_id,
                 payload=payload,
                 actor=actor_name(),
@@ -492,6 +600,7 @@ def connection_detail(connection_id: str):
 
     payload = DeletePayload.from_mapping(payload_mapping())
     ok = graph_service().delete_connection(
+        owner_id=owner_id(),
         conn_id=connection_id,
         actor=actor_name(),
         payload=payload,
@@ -508,7 +617,7 @@ def list_audits():
         entity_id=request.args.get("entity_id"),
         limit=request.args.get("limit", default=200, type=int),
     )
-    audits = graph_service().list_audits(query)
+    audits = graph_service().list_audits(owner_id(), query)
     return jsonify(to_json_ready(AuditsResponse(audits=audits)))
 
 
@@ -519,18 +628,18 @@ def export_audits():
         entity_id=request.args.get("entity_id"),
         limit=request.args.get("limit", default=2000, type=int),
     )
-    result = graph_service().export_audits(query)
+    result = graph_service().export_audits(owner_id(), query)
     return jsonify(to_json_ready(result))
 
 
 @web_bp.get("/api/audits/verify")
 def verify_audit_integrity():
-    return jsonify(to_json_ready(graph_service().verify_audit_integrity()))
+    return jsonify(to_json_ready(graph_service().verify_audit_integrity(owner_id())))
 
 
 @web_bp.get("/api/graphs/saved")
 def list_saved_graphs():
-    graphs = graph_service().list_saved_graphs()
+    graphs = graph_service().list_saved_graphs(owner_id())
     return jsonify(to_json_ready(SavedGraphsResponse(graphs=graphs)))
 
 
@@ -538,7 +647,12 @@ def list_saved_graphs():
 def save_graph():
     payload = GraphSavePayload.from_mapping(payload_mapping())
     try:
-        result = graph_service().save_graph(payload, actor=actor_name(), reason=payload.reason)
+        result = graph_service().save_graph(
+            owner_id(),
+            payload,
+            actor=actor_name(),
+            reason=payload.reason,
+        )
     except ValueError as exc:
         return jsonify(to_json_ready(ErrorResponse(error=str(exc)))), 400
     return jsonify(to_json_ready(result))
@@ -546,7 +660,7 @@ def save_graph():
 
 @web_bp.get("/api/graphs/export")
 def export_graph():
-    result = graph_service().export_graph()
+    result = graph_service().export_graph(owner_id())
     return jsonify(to_json_ready(result))
 
 
@@ -554,7 +668,12 @@ def export_graph():
 def load_graph():
     payload = GraphLoadPayload.from_mapping(payload_mapping())
     try:
-        result = graph_service().load_graph(payload, actor=actor_name(), reason=payload.reason)
+        result = graph_service().load_graph(
+            owner_id(),
+            payload,
+            actor=actor_name(),
+            reason=payload.reason,
+        )
     except ValueError as exc:
         return jsonify(to_json_ready(ErrorResponse(error=str(exc)))), 400
     return jsonify(to_json_ready(result))
@@ -564,7 +683,12 @@ def load_graph():
 def import_graph():
     payload = GraphImportPayload.from_mapping(payload_mapping())
     try:
-        result = graph_service().import_graph(payload, actor=actor_name(), reason=payload.reason)
+        result = graph_service().import_graph(
+            owner_id(),
+            payload,
+            actor=actor_name(),
+            reason=payload.reason,
+        )
     except ValueError as exc:
         return jsonify(to_json_ready(ErrorResponse(error=str(exc)))), 400
     return jsonify(to_json_ready(result))
@@ -574,7 +698,12 @@ def import_graph():
 def delete_saved_graph():
     payload = GraphDeletePayload.from_mapping(payload_mapping())
     try:
-        result = graph_service().delete_saved_graph(payload, actor=actor_name(), reason=payload.reason)
+        result = graph_service().delete_saved_graph(
+            owner_id(),
+            payload,
+            actor=actor_name(),
+            reason=payload.reason,
+        )
     except ValueError as exc:
         error_text = str(exc)
         status = 404 if error_text == "saved graph not found" else 400
@@ -585,16 +714,31 @@ def delete_saved_graph():
 @web_bp.post("/api/graphs/clear")
 def clear_graph():
     payload = GraphClearPayload.from_mapping(payload_mapping())
-    result = graph_service().clear_graph(payload, actor=actor_name(), reason=payload.reason)
+    result = graph_service().clear_graph(
+        owner_id(),
+        payload,
+        actor=actor_name(),
+        reason=payload.reason,
+    )
     return jsonify(to_json_ready(result))
 
 
 @web_bp.post("/api/llm/chat")
 def llm_chat():
-    payload = LLMChatRequest.from_mapping(payload_mapping())
+    payload_mapping_data = payload_mapping()
+    request_payload = LLMChatRequest.from_mapping(payload_mapping_data)
+    
     try:
-        snapshot = graph_service().graph_snapshot()
-        answer = llm_service().ask(payload, graph_snapshot=snapshot)
+        # Determine whether to use full graph or subgraph
+        if request_payload.graph_scope == "subgraph" and request_payload.subgraph is not None:
+            # Use subgraph
+            subgraph_result = graph_service().query_subgraph(owner_id(), request_payload.subgraph)
+            snapshot = subgraph_result.snapshot
+        else:
+            # Use full graph (default behavior for backward compatibility)
+            snapshot = graph_service().graph_snapshot(owner_id())
+        
+        answer = llm_service().ask(request_payload, graph_snapshot=snapshot)
     except ValueError as exc:
         return jsonify(to_json_ready(ErrorResponse(error=str(exc)))), 400
     except Exception as exc:
@@ -603,9 +747,30 @@ def llm_chat():
     return jsonify(to_json_ready(answer))
 
 
+@web_bp.post("/api/graph/subgraph")
+def query_subgraph():
+    """Query a subgraph based on various criteria."""
+    payload_mapping_data = payload_mapping()
+    
+    try:
+        subgraph_payload = SubgraphQueryPayload.from_mapping(payload_mapping_data)
+    except Exception as exc:
+        return jsonify(to_json_ready(ErrorResponse(error=f"Invalid subgraph query payload: {exc}"))), 400
+    
+    try:
+        result = graph_service().query_subgraph(owner_id(), subgraph_payload)
+    except ValueError as exc:
+        return jsonify(to_json_ready(ErrorResponse(error=str(exc)))), 400
+    except Exception as exc:
+        return jsonify(to_json_ready(ErrorResponse(error=f"Subgraph query failed: {exc}"))), 500
+    
+    return jsonify(to_json_ready(result))
+
+
 @web_bp.post("/api/llm/generate-graph")
 def llm_generate_graph():
     payload = payload_mapping()
+    current_owner_id = owner_id()
     topic = str(payload.get("topic", "")).strip()
     language = str(payload.get("language", "zh")).strip().lower()
     if language not in {"zh", "en"}:
@@ -685,6 +850,7 @@ def llm_generate_graph():
         return templates.get(normalized_type, templates["relates"])
 
     graph_service().clear_graph(
+        current_owner_id,
         GraphClearPayload(reason=reason),
         actor=actor,
         reason=reason,
@@ -713,6 +879,7 @@ def llm_generate_graph():
         )
         try:
             created = graph_service().create_node(
+                current_owner_id,
                 payload=node_payload,
                 actor=actor,
                 reason=reason,
@@ -761,6 +928,7 @@ def llm_generate_graph():
             )
             try:
                 graph_service().create_connection(
+                    current_owner_id,
                     payload=conn_payload,
                     actor=actor,
                     reason=reason,
@@ -787,7 +955,7 @@ def llm_review_graph():
     language = str(payload.get("language", "zh")).strip().lower()
     if language not in {"zh", "en"}:
         language = "zh"
-    snapshot = graph_service().graph_snapshot()
+    snapshot = graph_service().graph_snapshot(owner_id())
     try:
         result = llm_service().review_graph(snapshot, language=language)
     except ValueError as exc:

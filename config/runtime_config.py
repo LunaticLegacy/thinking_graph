@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 import os
 
+from config.auth_config import AuthConfig
 from config.database_config import DatabaseConfig
 from config.llm_config import LLMConfig
 from config.paths_config import PathsConfig
@@ -24,6 +25,7 @@ class RuntimeConfig:
     database: DatabaseConfig
     llm: LLMConfig
     server: ServerConfig
+    auth: AuthConfig = field(default_factory=AuthConfig.from_env)
 
     @classmethod
     def load(cls, project_root: Path | None = None) -> "RuntimeConfig":
@@ -34,6 +36,7 @@ class RuntimeConfig:
         database_section = _section(raw_config, "database")
         llm_section = _section(raw_config, "llm")
         server_section = _section(raw_config, "server")
+        auth_section = _section(raw_config, "auth")
 
         paths = PathsConfig.build(project_root=root, data=paths_section)
 
@@ -42,6 +45,7 @@ class RuntimeConfig:
             database=DatabaseConfig.from_sources(paths=paths, data=database_section),
             llm=LLMConfig.from_sources(data=llm_section, project_root=paths.project_root),
             server=ServerConfig.from_sources(data=server_section),
+            auth=AuthConfig.from_sources(data=auth_section),
         )
 
 

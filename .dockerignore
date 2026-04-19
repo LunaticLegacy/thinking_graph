@@ -1,0 +1,15 @@
+.git
+.github
+.pytest_cache
+.venv
+.tmp
+.codex
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+data/*.db
+tests
+assets
+models
+app_config.toml

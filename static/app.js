@@ -5,6 +5,7 @@ const state = {
     connections: [],
     savedGraphs: [],
     appSettings: null,
+    settingsEditable: false,
 };
 
 const nodesDataset = new vis.DataSet([]);
@@ -282,6 +283,7 @@ function createModeHintMessage() {
 
 async function api(url, options = {}) {
     const response = await fetch(buildApiUrl(url), {
+        credentials: "include",
         headers: {
             "Content-Type": "application/json",
             "X-Actor": "web-ui",
@@ -530,6 +532,9 @@ function fillSettingsForm(llmSettings = null) {
     const remoteApiKey = document.getElementById("settings-remote-api-key");
     if (remoteApiKey) {
         remoteApiKey.value = String(remoteApi.api_key || "");
+        remoteApiKey.placeholder = Boolean(remoteApi.api_key_configured)
+            ? uiText("已配置，留空则保持不变", "Configured; leave blank to keep current value")
+            : "";
     }
 
     const remoteBaseUrl = document.getElementById("settings-remote-base-url");
@@ -545,6 +550,9 @@ function fillSettingsForm(llmSettings = null) {
     const localApiKey = document.getElementById("settings-local-api-key");
     if (localApiKey) {
         localApiKey.value = String(localApi.api_key || "");
+        localApiKey.placeholder = Boolean(localApi.api_key_configured)
+            ? uiText("已配置，留空则保持不变", "Configured; leave blank to keep current value")
+            : "";
     }
 
     const localBaseUrl = document.getElementById("settings-local-base-url");
@@ -583,6 +591,35 @@ function fillSettingsForm(llmSettings = null) {
     }
 }
 
+function applySettingsEditable(editable) {
+    const saveButton = document.getElementById("save-settings");
+    const fieldIds = [
+        "settings-llm-backend",
+        "settings-remote-api-key",
+        "settings-remote-base-url",
+        "settings-remote-model",
+        "settings-local-api-key",
+        "settings-local-base-url",
+        "settings-local-model",
+        "settings-runtime-model",
+        "settings-runtime-model-dir",
+        "settings-runtime-npu-device",
+        "settings-runtime-onnx-provider",
+        "settings-runtime-require-npu",
+    ];
+
+    for (const fieldId of fieldIds) {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            field.disabled = !editable;
+        }
+    }
+
+    if (saveButton) {
+        saveButton.disabled = !editable;
+    }
+}
+
 function collectSettingsPayload() {
     const backend = (document.getElementById("settings-llm-backend")?.value || "remote_api").trim();
 
@@ -615,8 +652,21 @@ async function loadAppSettings() {
 
     const data = await api("/api/settings");
     const llmSettings = data.llm || {};
+    state.settingsEditable = Boolean(data.editable);
     state.appSettings = llmSettings;
     fillSettingsForm(llmSettings);
+    applySettingsEditable(state.settingsEditable);
+
+    if (!state.settingsEditable) {
+        const backendText = String(llmSettings.backend || "-");
+        setSettingsStatus(
+            uiText(
+                `已读取部署配置（LLM 后端：${backendText}，运行时修改已禁用）`,
+                `Loaded deployment config (LLM backend: ${backendText}; runtime edits disabled).`
+            )
+        );
+        return;
+    }
 
     const backendText = String(llmSettings.backend || "-");
     setSettingsStatus(
@@ -1420,8 +1470,10 @@ if (settingsForm) {
             });
 
             const llmSettings = result.llm || payload.llm;
+            state.settingsEditable = Boolean(result.editable);
             state.appSettings = llmSettings;
             fillSettingsForm(llmSettings);
+            applySettingsEditable(state.settingsEditable);
 
             const backendText = String(llmSettings.backend || "-");
             setSettingsStatus(
@@ -1652,6 +1704,7 @@ if (refreshAllButton) {
 
 initThemePreference();
 setColorInputValue(DEFAULT_NODE_COLOR);
+applySettingsEditable(false);
 
 document.addEventListener("i18n:changed", () => {
     refreshRuntimeI18nText();

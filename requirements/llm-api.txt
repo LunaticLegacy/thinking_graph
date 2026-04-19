@@ -1,0 +1,2 @@
+# LLM API client dependencies - for remote/local API backends
+openai==2.23.0
