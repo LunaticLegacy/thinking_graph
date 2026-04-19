@@ -1,0 +1,5 @@
+# All dependencies - aggregates all requirement files
+-r base.txt
+-r llm-api.txt
+-r llm-local.txt
+-r dev.txt
