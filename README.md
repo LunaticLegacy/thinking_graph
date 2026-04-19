@@ -55,11 +55,31 @@ cd thinking_graph
 python -m venv .venv
 source .venv/bin/activate  # Linux/Mac
 # 或 .venv\Scripts\activate  # Windows
+```
 
-# 安装依赖
+#### 选择安装方式
+
+**方式 1：最小运行（API LLM）- 推荐新手**
+```bash
 pip install -r requirements.txt
-# 如果需要本地运行语言模型
-# pip install -r ./requirements-local-llm.txt
+```
+包含 Flask + OpenAI API 客户端，适合使用 DeepSeek/OpenAI/Claude 等云端服务。
+
+**方式 2：本地 LLM/NPU 加速**
+```bash
+pip install -r requirements-local-llm.txt
+```
+包含 ONNX Runtime / OpenVINO，适合本地推理和 NPU 加速。
+
+**方式 3：开发测试环境**
+```bash
+pip install -r requirements-dev.txt
+```
+包含 pytest、httpx 等开发工具。
+
+**方式 4：完整安装（所有依赖）**
+```bash
+pip install -r requirements/all.txt
 ```
 
 ### 配置
