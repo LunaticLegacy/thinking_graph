@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Generic, TypeVar
+
+
+T = TypeVar("T")
 
 
 # ==================== Common Result Models ====================
@@ -24,7 +27,7 @@ class LLMOperationError:
 
 
 @dataclass
-class LLMStructuredParseResult[T]:
+class LLMStructuredParseResult(Generic[T]):
     """Result of parsing structured output from LLM."""
     success: bool
     data: T | None = None

@@ -11,7 +11,7 @@ from backend.services.llm_prompt_builders import (
     build_review_graph_prompt,
     build_review_graph_system_prompt,
 )
-from backend.services.llm_schemas import (
+from datamodels.llm_schemas import (
     LLMGraphIssue,
     LLMGraphReviewAggregate,
     LLMGraphReviewDraft,

@@ -11,7 +11,7 @@ from backend.services.llm_prompt_builders import (
     build_generate_graph_prompt,
     build_generate_graph_system_prompt,
 )
-from backend.services.llm_schemas import (
+from datamodels.llm_schemas import (
     LLMGeneratedConnection,
     LLMGeneratedNode,
     LLMGraphDraft,

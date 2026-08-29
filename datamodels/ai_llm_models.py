@@ -85,6 +85,8 @@ class LLMChatRequest:
                     # If subgraph parsing fails, fall back to full
                     graph_scope = "full"
                     subgraph = None
+            else:
+                graph_scope = "full"
 
         return cls(
             prompt=prompt,

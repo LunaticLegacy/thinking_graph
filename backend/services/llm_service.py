@@ -8,9 +8,8 @@ from backend.services.llm_backends import LLMBackend, create_llm_backend
 from backend.services.llm_graph_generation import GraphGenerationPipeline
 from backend.services.llm_graph_review import GraphReviewPipeline
 from backend.services.llm_prompt_builders import build_chat_with_graph_prompt
-from backend.services.llm_schemas import (
-    LLMGraphIssue,
-    LLMGraphReviewAggregate,
+from datamodels.llm_schemas import (
+    LLMGraphDraft,
 )
 from config import LLMConfig
 from datamodels.ai_llm_models import (
@@ -62,6 +61,8 @@ class LLMService:
         except Exception as exc:
             # Create a disabled backend with error message
             from backend.services.llm_backends import LLMBackend
+
+            disabled_reason = f"Backend disabled: {exc}"
             
             class DisabledBackend(LLMBackend):
                 @property
@@ -73,7 +74,7 @@ class LLMService:
                     return model or config.model
                 
                 def chat_text(self, *args, **kwargs) -> str:
-                    raise RuntimeError(f"Backend disabled: {exc}")
+                    raise RuntimeError(disabled_reason)
             
             self._backend = DisabledBackend()
         
@@ -212,6 +213,51 @@ class LLMService:
             "node_count": len(nodes),
             "connection_count": len(connections),
         }
+
+    def _normalize_generated_graph_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        max_nodes: int,
+        language: str,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Normalize legacy graph-generation payloads for API compatibility."""
+        pipeline = GraphGenerationPipeline.__new__(GraphGenerationPipeline)
+        nodes = pipeline._parse_generated_nodes(payload.get("nodes", []), max_nodes)
+        connections = pipeline._parse_generated_connections(
+            payload.get("connections", []),
+            node_ids={node.id for node in nodes},
+            language=language,
+        )
+        normalized = pipeline._normalize_and_validate(
+            LLMGraphDraft(nodes=nodes, connections=connections),
+            language=language,
+        )
+
+        return (
+            [
+                {
+                    "id": node.id,
+                    "content": node.content,
+                    "summary": node.summary,
+                    "confidence": node.confidence,
+                    "color": node.color,
+                    "tags": node.tags,
+                    "evidence": node.evidence,
+                }
+                for node in normalized.nodes
+            ],
+            [
+                {
+                    "source_id": connection.source_id,
+                    "target_id": connection.target_id,
+                    "conn_type": connection.conn_type,
+                    "description": connection.description,
+                    "strength": connection.strength,
+                }
+                for connection in normalized.connections
+            ],
+        )
 
     def review_graph(self, snapshot: GraphSnapshot, *, language: str = "zh") -> LLMGraphReviewResponse:
         """Review a thinking graph using the new multi-layer pipeline."""

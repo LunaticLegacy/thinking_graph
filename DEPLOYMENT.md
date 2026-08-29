@@ -30,6 +30,28 @@ Important:
 
 ## Docker
 
+### Published release images
+
+The CD workflow publishes a Docker image to GitHub Container Registry
+whenever a version tag such as `v1.2.3` is pushed. Images are available at:
+
+```text
+ghcr.io/lunaticlegacy/thinking_graph:<version>
+```
+
+For example:
+
+```bash
+docker pull ghcr.io/lunaticlegacy/thinking_graph:1.2.3
+```
+
+The workflow also publishes an image digest attestation. To create a release:
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
 Build:
 
 ```bash

@@ -627,6 +627,7 @@ class GraphService:
         # Select initial seed nodes based on scores
         seed_nodes = self._select_initial_seeds(node_scores, payload)
         seed_node_ids = {node.id for node in seed_nodes}
+        explicit_seed_node_ids = set(payload.seed_node_ids)
         
         # Expand neighborhood
         expanded_node_ids = self._expand_subgraph_nodes(
@@ -638,15 +639,17 @@ class GraphService:
         for node_id in expanded_node_ids:
             node = next((n for n in all_nodes if n.id == node_id), None)
             if node:
-                # Keep seed nodes even if below confidence threshold
-                if node.confidence >= payload.min_confidence or node_id in seed_node_ids:
+                # Only caller-provided seeds bypass the confidence threshold.
+                if node.confidence >= payload.min_confidence or node_id in explicit_seed_node_ids:
                     filtered_node_ids.add(node_id)
         
         # Get selected nodes
         selected_nodes = [n for n in all_nodes if n.id in filtered_node_ids]
         
         # Trim to max_nodes
-        selected_nodes = self._trim_subgraph_nodes(selected_nodes, seed_node_ids, payload.max_nodes)
+        selected_nodes = self._trim_subgraph_nodes(
+            selected_nodes, explicit_seed_node_ids, payload.max_nodes
+        )
         final_node_ids = {n.id for n in selected_nodes}
         
         # Select connections between selected nodes
@@ -663,7 +666,7 @@ class GraphService:
             
             non_orphan_nodes = []
             for node in selected_nodes:
-                if node.id in connected_node_ids or node.id in seed_node_ids:
+                if node.id in connected_node_ids or node.id in explicit_seed_node_ids:
                     non_orphan_nodes.append(node)
             selected_nodes = non_orphan_nodes
             final_node_ids = {n.id for n in selected_nodes}
@@ -687,7 +690,7 @@ class GraphService:
             total_connections_in_graph=total_connections,
             selected_node_count=len(selected_nodes),
             selected_connection_count=len(selected_connections),
-            seed_node_count=len(seed_node_ids & final_node_ids),
+            seed_node_count=len(explicit_seed_node_ids & final_node_ids),
             message=f"Selected {len(selected_nodes)} nodes and {len(selected_connections)} connections"
         )
 

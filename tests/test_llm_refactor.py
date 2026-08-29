@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import Mock, MagicMock
 
 from backend.services.llm_backends import APIBackend, LocalRuntimeBackend, create_llm_backend
-from backend.services.llm_schemas import (
+from datamodels.llm_schemas import (
     LLMGeneratedNode,
     LLMGeneratedConnection,
     LLMGraphDraft,
